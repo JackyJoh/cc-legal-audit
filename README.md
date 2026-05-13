@@ -4,7 +4,7 @@ Empirical audit of how uniform MinHash fuzzy deduplication thresholds affects se
 
 ## Motivation
 
-Standard LLM pre-training pipelines apply a uniform Jaccard similarity threshold (typically 0.8 on 13-grams) inherited from Gopher without empirical validation across domains. Legal text has constrained vocabulary and structural conventions that inflate n-gram similarity scores — substantively different documents get flagged as duplicates not because they share content, but because they sound alike. DCLM noted this as an open problem and left domain-level investigation as future work. This project picks that up.
+Standard LLM pre-training pipelines apply a uniform Jaccard similarity threshold (typically 0.8 on 13-grams) inherited from Gopher without empirical validation across domains. Legal text has constrained vocabulary and structural conventions that inflate n-gram similarity scores: substantively different documents get flagged as duplicates not because they share content, but because they sound alike. DCLM noted this as an open problem and left domain-level investigation as future work. This project picks that up.
 
 ## Methodology
 
@@ -18,8 +18,8 @@ Standard LLM pre-training pipelines apply a uniform Jaccard similarity threshold
 
 ## Code
 
-- `url_classifier.py` — Classifies any URL as legal or non-legal via keyword token matching
-- `recall_test.py` — Validates the classifier against labeled legal documents
+- `url_classifier.py`: Classifies any URL as legal or non-legal via keyword token matching
+- `recall_test.py`: Validates the classifier against labeled legal documents
 
 ## Paper
 University of Florida undergraduate research.
