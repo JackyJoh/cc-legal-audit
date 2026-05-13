@@ -1,6 +1,6 @@
 # cc-legal-audit
 
-Empirical audit of how uniform MinHash fuzzy deduplication thresholds affect semantic coverage in the legal domain versus general web text, using Common Crawl data.
+Empirical audit of how uniform MinHash fuzzy deduplication thresholds affects semantic coverage (topic entropy) in the legal domain versus general web text, using Common Crawl data.
 
 ## Motivation
 
