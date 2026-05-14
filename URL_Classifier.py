@@ -5,15 +5,18 @@ from urllib.parse import urlparse
 
 WHITELIST_FILE = os.path.join(os.path.dirname(__file__), "wl_candidates.txt")
 
-suffixAllowed = 5  # keywords shorter than this require exact token match, not suffix
-
 # Keywords whose presence in a URL hostname reliably signals a primary legal source.
 # Only terms that survive host-only tokenization with low false-positive rates.
 legalKeywords = [
     'judicial', 'statute', 'litigation', 'counsel',
-    'judiciary', 'verdict', 'plaintiff', 'defendant', 'indictment',
-    'jurisprudence', 'justice', 'tribunal', 'appeal', 'senate',
+    'judiciary', 'plaintiff', 'defendant', 'indictment',
+    'jurisprudence', 'tribunal', 'senate',
 ]
+
+# Keyword fallback is restricted to non-commercial/non-academic TLDs.
+# .com/.edu/.org domains with legal keywords are almost always law firms,
+# university governance bodies, or advocacy orgs — not primary legal sources.
+_KW_BLOCKED_TLDS = ('.com', '.edu', '.org', '.net')
 
 
 def LoadWhitelist(path):
@@ -48,16 +51,23 @@ def InWhitelist(host):
 
 
 def classify(url: str) -> bool:
-    """Return True if the URL's host is a primary legal source.
+    """Return True if the URL is a primary legal source document.
 
-    Checks the curated domain whitelist first, then falls back to keyword
-    matching on the hostname only. Path components are ignored to prevent
-    false positives from /case-studies/ or /legal pages.
+    Filters homepage and search paths first, then checks the curated domain
+    whitelist, then falls back to keyword matching on the hostname only.
     """
-    host = urlparse(url).netloc
+    parsed = urlparse(url)
+    path = parsed.path.lower().rstrip('/')
+    if not path or path.startswith('/search'):
+        return False
+
+    host = parsed.netloc
 
     if InWhitelist(host):
         return True
+
+    if host.endswith(_KW_BLOCKED_TLDS):
+        return False
 
     tokens = re.split(r'[.,-/=?_]', host)
     for t in tokens:
@@ -68,11 +78,8 @@ def classify(url: str) -> bool:
             candidates.append(t[:-1])
 
         for word in legalKeywords:
-            for c in candidates:
-                if len(word) >= suffixAllowed and c.endswith(word):
-                    return True
-                if c == word:
-                    return True
+            if word in candidates:
+                return True
 
     return False
 

@@ -18,9 +18,9 @@ from URL_Classifier import classify, InWhitelist
 load_dotenv()
 
 # ── config ────────────────────────────────────────────────────────────────────
-SNAPSHOT     = "CC-MAIN-2026-12"   # swap to "CC-MAIN-2026-17" for the real run
+SNAPSHOT     = "CC-MAIN-2026-17"
 SEED         = 42
-N_SAMPLE     = 5000
+N_SAMPLE     = 100000
 N_NEG_REVIEW = 75
 ATHENA_DB    = "ccindex"
 # ──────────────────────────────────────────────────────────────────────────────
@@ -75,10 +75,15 @@ def main():
     random.seed(SEED)
     random.shuffle(urls)
 
-    positives = [u for u in urls if classify(u)]
-    negatives = [u for u in urls if not classify(u)]
-
     from urllib.parse import urlparse
+    positives, negatives = [], []
+    total = len(urls)
+    for i, u in enumerate(urls, 1):
+        if i % 1000 == 0 or i == total:
+            print(f"\r  {i:,}/{total:,} classified", end='', flush=True)
+        (positives if classify(u) else negatives).append(u)
+    print()
+
     wl_hits = [u for u in positives if InWhitelist(urlparse(u).netloc)]
     kw_hits = [u for u in positives if not InWhitelist(urlparse(u).netloc)]
 
@@ -95,6 +100,13 @@ def main():
     print(f"\n=== KW HITS ONLY ({len(kw_hits)}) ===")
     for i, u in enumerate(kw_hits, 1):
         print(f"  {i:3}. {u}")
+
+    # ── nav/homepage hits across all positives (for path filter review) ─────────
+    nav_hits = [u for u in positives if not urlparse(u).path.lower().rstrip('/') or urlparse(u).path.lower().rstrip('/').startswith('/search')]
+    print(f"\n=== NAV/HOMEPAGE HITS ({len(nav_hits)}) ===")
+    for i, u in enumerate(nav_hits, 1):
+        tag = "[WL]" if InWhitelist(urlparse(u).netloc) else "[KW]"
+        print(f"  {i:3}. {tag} {u}")
 
     # ── recall review ─────────────────────────────────────────────────────────
     print(f"\n=== NEGATIVE SAMPLE ({len(neg_sample)} of {len(negatives)}) — mark any that ARE legal (FN) ===")

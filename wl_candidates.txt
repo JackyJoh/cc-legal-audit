@@ -14,6 +14,7 @@
 13736	law.lis.virginia.gov
 10922	caselaw.nationalarchives.gov.uk
 10242	laws.justice.gc.ca
+00000   justice.gc.ca
 9109	apps.legislature.ky.gov
 8964	california.public.law
 8862	legislature.idaho.gov
@@ -79,3 +80,4 @@
 1058	ohioattorneygeneral.gov
 1037	sdlegislature.gov
 1033	legislation.nt.gov.au
+0	pngjudiciary.gov.pg
