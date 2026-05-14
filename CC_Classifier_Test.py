@@ -91,6 +91,11 @@ def main():
         tag = "[WL]" if InWhitelist(urlparse(u).netloc) else "[KW]"
         print(f"  {i:3}. {tag} {u}")
 
+    # ── KW hits only (for FP review) ─────────────────────────────────────────
+    print(f"\n=== KW HITS ONLY ({len(kw_hits)}) ===")
+    for i, u in enumerate(kw_hits, 1):
+        print(f"  {i:3}. {u}")
+
     # ── recall review ─────────────────────────────────────────────────────────
     print(f"\n=== NEGATIVE SAMPLE ({len(neg_sample)} of {len(negatives)}) — mark any that ARE legal (FN) ===")
     for i, u in enumerate(neg_sample, 1):

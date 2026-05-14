@@ -10,7 +10,6 @@ Prerequisites:
   2. ATHENA_OUTPUT_LOCATION set in .env
   3. MSCK REPAIR TABLE ccindex run recently enough to include the snapshot
 
-Cost: ~$0.50 per run (one crawl partition ~100GB at $5/TB).
 """
 import os
 import time

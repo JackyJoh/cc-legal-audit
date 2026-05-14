@@ -16,6 +16,14 @@ Standard LLM pre-training pipelines apply a uniform Jaccard similarity threshold
 6. Re-measure topic entropy per domain after each threshold
 7. Compare coverage loss curves across domains to quantify asymmetry
 
+### URL Classifier
+
+1. Register the CC columnar index (`ccindex`) as an Athena table to enable SQL queries over a given crawl snapshot. 
+2. Run `WL_Builder.py` against an OOS snapshot (CC-MAIN-2026-12, separate from the research snapshot) to discover candidate legal domains. The query groups by `url_host_name`, filters to English pages, and retains only hosts with ≥1000 pages to exclude low-traffic noise.
+3. Manually triage the candidate list: keep a domain only if its primary function is producing or publishing formal legal documents (court records, statutes, regulations). Advocacy organizations, legal news, and commentary are excluded.
+4. Add a keyword fallback for domains absent from the whitelist. The hostname (not the full URL path) is tokenized and matched against a conservative list of legal terms. Keywords ≥5 characters also match as a suffix of any token; shorter keywords require an exact token match. Keywords are tested iteratively by sampling URLs from the OOS snapshot and removing any term with an unacceptable false-positive rate.
+5. Measure precision and recall on the research snapshot (CC-MAIN-2026-17) with a fixed random seed.
+
 ## Code
 
 - `URL_Classifier.py`: URL-based legal/non-legal classifier. Two-layer architecture: curated domain whitelist (`wl_candidates.txt`) checked first, then strict keyword matching on the hostname only (path ignored to prevent false positives).
