@@ -8,6 +8,7 @@ Prerequisites:
 
 Cost: ~$0.50 per run (scans one crawl partition ~100GB at $5/TB).
 """
+import csv
 import os
 import time
 import random
@@ -20,8 +21,9 @@ load_dotenv()
 # ── config ────────────────────────────────────────────────────────────────────
 SNAPSHOT     = "CC-MAIN-2026-17"
 SEED         = 42
-N_SAMPLE     = 100000
-N_NEG_REVIEW = 75
+N_SAMPLE     = 1000000
+N_POS_REVIEW = 200
+N_NEG_REVIEW = 200
 ATHENA_DB    = "ccindex"
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -88,23 +90,12 @@ def main():
     kw_hits = [u for u in positives if not InWhitelist(urlparse(u).netloc)]
 
     random.seed(SEED)
+    pos_sample = random.sample(positives, min(N_POS_REVIEW, len(positives)))
     neg_sample = random.sample(negatives, min(N_NEG_REVIEW, len(negatives)))
 
     # ── precision review ──────────────────────────────────────────────────────
-    print(f"\n=== POSITIVES ({len(positives)}) — mark each TP or FP ===")
-    for i, u in enumerate(positives, 1):
-        tag = "[WL]" if InWhitelist(urlparse(u).netloc) else "[KW]"
-        print(f"  {i:3}. {tag} {u}")
-
-    # ── KW hits only (for FP review) ─────────────────────────────────────────
-    print(f"\n=== KW HITS ONLY ({len(kw_hits)}) ===")
-    for i, u in enumerate(kw_hits, 1):
-        print(f"  {i:3}. {u}")
-
-    # ── nav/homepage hits across all positives (for path filter review) ─────────
-    nav_hits = [u for u in positives if not urlparse(u).path.lower().rstrip('/') or urlparse(u).path.lower().rstrip('/').startswith('/search')]
-    print(f"\n=== NAV/HOMEPAGE HITS ({len(nav_hits)}) ===")
-    for i, u in enumerate(nav_hits, 1):
+    print(f"\n=== POSITIVE SAMPLE ({len(pos_sample)} of {len(positives)}) — mark each TP or FP ===")
+    for i, u in enumerate(pos_sample, 1):
         tag = "[WL]" if InWhitelist(urlparse(u).netloc) else "[KW]"
         print(f"  {i:3}. {tag} {u}")
 
@@ -113,15 +104,26 @@ def main():
     for i, u in enumerate(neg_sample, 1):
         print(f"  {i:3}. {u}")
 
+    # ── CSV output ────────────────────────────────────────────────────────────
+    csv_path = f"review_{SNAPSHOT}_seed{SEED}.csv"
+    with open(csv_path, 'w', newline='', encoding='utf-8') as f:
+        w = csv.writer(f)
+        w.writerow(['section', 'tag', 'url', 'label'])
+        for u in pos_sample:
+            tag = 'WL' if InWhitelist(urlparse(u).netloc) else 'KW'
+            w.writerow(['positive', tag, u, ''])
+        for u in neg_sample:
+            w.writerow(['neg_sample', '', u, ''])
+
     # ── raw counts ────────────────────────────────────────────────────────────
     print(f"\n{'─'*60}")
     print(f"Total sampled  : {len(urls)}")
-    print(f"Positives      : {len(positives)}  ({len(wl_hits)} WL, {len(kw_hits)} KW)  [{100*len(positives)/len(urls):.1f}%]")
-    print(f"Negatives      : {len(negatives)}  ({len(neg_sample)} reviewed, {len(negatives)-len(neg_sample)} unreviewed)")
+    print(f"Positives      : {len(positives)}  ({len(wl_hits)} WL, {len(kw_hits)} KW)  [{100*len(positives)/len(urls):.1f}%]  →  {len(pos_sample)} sampled for review")
+    print(f"Negatives      : {len(negatives)}  →  {len(neg_sample)} sampled for review")
+    print(f"CSV written    : {csv_path}")
     print()
-    print("Precision = TP / (TP + FP)   [count from positives list]")
-    print("Recall    = TP_est / (TP_est + FN_est)")
-    print(f"  FN in reviewed sample → scale: FN_est = FN_found × ({len(negatives)} / {len(neg_sample)})")
+    print("Precision = TP / (TP + FP)   [label positives in CSV]")
+    print("FN rate   = FN / N_NEG_REVIEW [label negatives in CSV]")
 
 
 if __name__ == "__main__":
