@@ -1,4 +1,5 @@
 import re
+from urllib.parse import urlparse
 
 
 # Minimum keyword length to permit suffix matching. Short keywords (e.g. 'irs', 'epa')
@@ -6,25 +7,38 @@ import re
 suffixAllowed = 5
 
 # Legal domain keywords derived from Pile of Law subcorpus labels and CC frequency scan.
-legalKeywords = ['law', 'legal', 'court', 'judicial', 'statute', 'attorney',
+# Keyword policy: only terms whose presence in a URL token reliably signals a source
+# whose PRIMARY FUNCTION is producing formal legal documents (courts, legislatures,
+# regulators, statute repositories). Excluded terms are documented below.
+
+
+
+# indictment --ADD  
+legalKeywords = [ 'judicial', 'statute', 'attorney',
                   'lawyer', 'litigation', 'counsel', 'judiciary', 'verdict',
-                  'plaintiff', 'defendant', 'jurisprudence', 'case',
-                  'justice', 'tribunal', 'appeal', 'filing']
+                  'plaintiff', 'defendant', 'jurisprudence',
+                  'justice', 'tribunal', 'appeal',
+                  ]
 
 def classify(url: str) -> bool:
     """Classify a URL as legal or non-legal.
 
-    Tokenizes the URL on common delimiters and checks each token against
-    legalKeywords. Tokens are checked as-is and with trailing 's'/'es' stripped.
+    Tokenizes the URL's HOST only (e.g. 'www.uscourts.gov') and checks each
+    token against legalKeywords. Path components are ignored to prevent
+    false positives from incidental keyword matches like /case-studies/ or
+    /legal (terms pages).
+
+    Tokens are checked as-is and with trailing 's'/'es' stripped.
     Keywords >= suffixAllowed characters also match as a suffix of a token.
 
     Args:
         url: The full URL string to classify.
 
     Returns:
-        True if the URL contains a legal keyword token, False otherwise.
+        True if the URL's host contains a legal keyword token, False otherwise.
     """
-    tokens = re.split(r'[.,-/=?_]', url)
+    host = urlparse(url).netloc
+    tokens = re.split(r'[.,-/=?_]', host)
 
     for t in tokens:
         candidates = [t]
