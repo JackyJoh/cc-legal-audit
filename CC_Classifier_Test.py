@@ -13,7 +13,7 @@ import time
 import random
 import boto3
 from dotenv import load_dotenv
-from URL_Classifier import classify
+from URL_Classifier import classify, InWhitelist
 
 load_dotenv()
 
@@ -78,13 +78,18 @@ def main():
     positives = [u for u in urls if classify(u)]
     negatives = [u for u in urls if not classify(u)]
 
+    from urllib.parse import urlparse
+    wl_hits = [u for u in positives if InWhitelist(urlparse(u).netloc)]
+    kw_hits = [u for u in positives if not InWhitelist(urlparse(u).netloc)]
+
     random.seed(SEED)
     neg_sample = random.sample(negatives, min(N_NEG_REVIEW, len(negatives)))
 
     # ── precision review ──────────────────────────────────────────────────────
     print(f"\n=== POSITIVES ({len(positives)}) — mark each TP or FP ===")
     for i, u in enumerate(positives, 1):
-        print(f"  {i:3}. {u}")
+        tag = "[WL]" if InWhitelist(urlparse(u).netloc) else "[KW]"
+        print(f"  {i:3}. {tag} {u}")
 
     # ── recall review ─────────────────────────────────────────────────────────
     print(f"\n=== NEGATIVE SAMPLE ({len(neg_sample)} of {len(negatives)}) — mark any that ARE legal (FN) ===")
@@ -94,7 +99,7 @@ def main():
     # ── raw counts ────────────────────────────────────────────────────────────
     print(f"\n{'─'*60}")
     print(f"Total sampled  : {len(urls)}")
-    print(f"Positives      : {len(positives)}")
+    print(f"Positives      : {len(positives)}  ({len(wl_hits)} WL, {len(kw_hits)} KW)  [{100*len(positives)/len(urls):.1f}%]")
     print(f"Negatives      : {len(negatives)}  ({len(neg_sample)} reviewed, {len(negatives)-len(neg_sample)} unreviewed)")
     print()
     print("Precision = TP / (TP + FP)   [count from positives list]")

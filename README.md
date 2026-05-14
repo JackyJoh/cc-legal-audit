@@ -18,8 +18,10 @@ Standard LLM pre-training pipelines apply a uniform Jaccard similarity threshold
 
 ## Code
 
-- `url_classifier.py`: URL-based legal/non-legal classifier
-- `recall_test.py`: Classifier validation against labeled legal documents
+- `URL_Classifier.py`: URL-based legal/non-legal classifier. Two-layer architecture: curated domain whitelist (`wl_candidates.txt`) checked first, then strict keyword matching on the hostname only (path ignored to prevent false positives).
+- `WL_Builder.py`: Discovers candidate legal domains from a CC snapshot via Athena. Queries `url_host_name` grouped by page count and writes results to `wl_candidates.txt` for manual triage.
+- `wl_candidates.txt`: Triaged whitelist of primary legal source domains (courts, legislatures, statute repositories). One entry per line; suffix matching at runtime covers all subdomains.
+- `CC_Classifier_Test.py`: Samples URLs from a CC snapshot via Athena TABLESAMPLE, classifies them, and prints positives tagged `[WL]` or `[KW]` plus a negative sample for manual precision/recall review.
 
 ## Paper
 University of Florida undergraduate research.
