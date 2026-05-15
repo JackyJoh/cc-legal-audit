@@ -10,7 +10,7 @@ WHITELIST_FILE = os.path.join(os.path.dirname(__file__), "wl_candidates.txt")
 legalKeywords = [
     'judicial', 'statute', 'litigation', 'counsel',
     'judiciary', 'plaintiff', 'defendant', 'indictment',
-    'jurisprudence', 'tribunal', 'senate',
+    'jurisprudence', 'tribunal',
 ]
 
 # Keyword fallback is restricted to non-commercial/non-academic TLDs.
@@ -61,7 +61,7 @@ def classify(url: str) -> bool:
     if not path or path.startswith('/search'):
         return False
 
-    host = parsed.netloc
+    host = parsed.netloc.split(':', 1)[0]
 
     if InWhitelist(host):
         return True

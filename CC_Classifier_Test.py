@@ -19,7 +19,7 @@ from URL_Classifier import classify, InWhitelist
 load_dotenv()
 
 # ── config ────────────────────────────────────────────────────────────────────
-SNAPSHOT     = "CC-MAIN-2026-17"
+SNAPSHOT     = "CC-MAIN-2026-12"
 SEED         = 42
 N_SAMPLE     = 1000000
 N_POS_REVIEW = 200
@@ -104,23 +104,23 @@ def main():
     for i, u in enumerate(neg_sample, 1):
         print(f"  {i:3}. {u}")
 
-    # ── CSV output ────────────────────────────────────────────────────────────
-    csv_path = f"review_{SNAPSHOT}_seed{SEED}.csv"
-    with open(csv_path, 'w', newline='', encoding='utf-8') as f:
-        w = csv.writer(f)
-        w.writerow(['section', 'tag', 'url', 'label'])
-        for u in pos_sample:
-            tag = 'WL' if InWhitelist(urlparse(u).netloc) else 'KW'
-            w.writerow(['positive', tag, u, ''])
-        for u in neg_sample:
-            w.writerow(['neg_sample', '', u, ''])
+    # # ── CSV output ────────────────────────────────────────────────────────────
+    # csv_path = f"review_{SNAPSHOT}_seed{SEED}.csv"
+    # with open(csv_path, 'w', newline='', encoding='utf-8') as f:
+    #     w = csv.writer(f)
+    #     w.writerow(['section', 'tag', 'url', 'label'])
+    #     for u in pos_sample:
+    #         tag = 'WL' if InWhitelist(urlparse(u).netloc) else 'KW'
+    #         w.writerow(['positive', tag, u, ''])
+    #     for u in neg_sample:
+    #         w.writerow(['neg_sample', '', u, ''])
 
     # ── raw counts ────────────────────────────────────────────────────────────
     print(f"\n{'─'*60}")
     print(f"Total sampled  : {len(urls)}")
     print(f"Positives      : {len(positives)}  ({len(wl_hits)} WL, {len(kw_hits)} KW)  [{100*len(positives)/len(urls):.1f}%]  →  {len(pos_sample)} sampled for review")
     print(f"Negatives      : {len(negatives)}  →  {len(neg_sample)} sampled for review")
-    print(f"CSV written    : {csv_path}")
+    # print(f"CSV written    : {csv_path}")
     print()
     print("Precision = TP / (TP + FP)   [label positives in CSV]")
     print("FN rate   = FN / N_NEG_REVIEW [label negatives in CSV]")

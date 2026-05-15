@@ -1,0 +1,15 @@
+CourtListener External Recall Validation
+Source: opinions-2026-03-31.csv.bz2 (Free Law Project bulk dump)
+Pool: 10,000 URLs streamed; 2,000 randomly subsampled per run
+
+─── Run 1 (SEED=42, initial) ───
+Sampled URLs   : 2,000
+Caught         : 1,684  (1364 WL, 320 KW)
+Missed (FN)    : 316
+Recall         : 84.2%
+
+─── Run 2 (SEED=43, post-WL iteration) ───
+Sampled URLs   : 2,000
+Caught         : 1,769  (1442 WL, 327 KW)
+Missed (FN)    : 231
+Recall         : 88.4%

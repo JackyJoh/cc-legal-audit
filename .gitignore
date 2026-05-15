@@ -3,3 +3,4 @@ __pycache__/
 ccData/
 .claude/
 .env
+*.csv
