@@ -14,27 +14,42 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, precision_score, recall_score, f1_score
 
-LABELED_FILE = "data/processed/labeled_urls.jsonl"
-CANDIDATES_FILE = "data/candidates/candidates.jsonl"
+LABELED_FILES = [
+    "data/processed/labeled_urls.jsonl",
+    "data/processed/targeted_labeled_urls.jsonl",
+]
+CANDIDATES_FILES = [
+    "data/candidates/candidates.jsonl",
+    "data/candidates/targeted_batch.jsonl",
+]
 RAW_POOL_FILE = "data/candidates/raw_pool.jsonl"
 SEED = 42
 N_OOS = 20
 # precision over recall on purpose: false positives pollute the (tiny) legal
 # bucket that topic diversity gets measured on, false negatives just get
-# reabsorbed into the (huge) non_legal bucket where they're a rounding error
-OPERATING_THRESHOLD = 0.9
+# reabsorbed into the (huge) non_legal bucket where they're a rounding error.
+# 0.85, not 0.9: after merging in the targeted +500 batch, the
+# precision/recall curve shifted right (0.9 now gives only 37% recall vs.
+# 55.6% before) - 0.85 is the new best point at ~91% precision / ~61% recall,
+# see data/processed/threshold_sweep_results.csv for the full sweep.
+OPERATING_THRESHOLD = 0.85
 
 
-def load_labeled(path):
-    urls, labels = [], []
-    with open(path, encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            obj = json.loads(line)
-            urls.append(obj["url"])
-            labels.append(obj["label"])
+def load_labeled(paths):
+    """Load and merge one or more labeled_urls.jsonl-shaped files, deduping
+    by URL (first file wins) so the same URL can't appear twice even if it
+    somehow shows up in more than one source file."""
+    by_url = {}
+    for path in paths:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                obj = json.loads(line)
+                by_url.setdefault(obj["url"], obj["label"])
+    urls = list(by_url.keys())
+    labels = list(by_url.values())
     return urls, labels
 
 
@@ -51,8 +66,8 @@ def load_urls(path):
 def main():
     random.seed(SEED)
 
-    urls, labels = load_labeled(LABELED_FILE)
-    print(f"Loaded {len(urls)} labeled URLs "
+    urls, labels = load_labeled(LABELED_FILES)
+    print(f"Loaded {len(urls)} labeled URLs from {len(LABELED_FILES)} files "
           f"({labels.count('legal')} legal, {labels.count('non_legal')} non_legal)")
 
     X_train, X_test, y_train, y_test = train_test_split(
@@ -83,8 +98,10 @@ def main():
         n_flagged = sum(preds)
         print(f"{t:>9.2f} {p:>9.3f} {r:>9.3f} {f1:>9.3f} {n_flagged:>9}")
 
-    # genuinely unseen URLs: raw pool minus anything ever in the candidate batch
-    candidates = set(load_urls(CANDIDATES_FILE))
+    # genuinely unseen URLs: raw pool minus anything ever in either candidate batch
+    candidates = set()
+    for path in CANDIDATES_FILES:
+        candidates.update(load_urls(path))
     raw_pool = load_urls(RAW_POOL_FILE)
     oos_pool = [u for u in raw_pool if u not in candidates]
     oos_sample = random.sample(oos_pool, min(2000, len(oos_pool)))

@@ -1,17 +1,15 @@
 """
-Samples raw URLs from the CC columnar index via Athena and writes them to a
-raw pool file. No classification happens here, this just sources candidate
-URLs. Run build_label_batch.py next to turn this raw pool into the actual
-batch handed to the labeling agent (prefilter hits + raw random + homepage
-negatives).
+Fresh Athena pull for the deployment-validation follow-up: the first
+21-URL sample (sample_deployment_validation.py, threshold 0.85) turned out
+to be 100% lois.justice.gc.ca - nothing else in that 600k pool cleared the
+threshold. This pulls a different, larger portion of the crawl with .ca
+domains excluded at the SQL level, so the next validation sample can't
+overlap with the first one and can't be Canadian by construction.
 
-Prerequisites:
-  1. Register ccindex table in Athena (follow CC docs - CREATE DATABASE + CREATE EXTERNAL TABLE)
-  2. Set ATHENA_OUTPUT_LOCATION in .env to an S3 bucket you own (Athena writes results there)
-
-Cost: about $0.50 per run (scans one crawl partition, ~100GB at $5/TB), and
-that's independent of how many rows you request, so pulling a bigger pool
-here is effectively free.
+Cost is the same ~$0.50/run as fetch_candidate_urls.py (scans one crawl
+partition regardless of row count), so pulling more rows here is free -
+sized up to 1.5M (vs. the original 600k) since confident non-.ca hits
+appear to be rare.
 """
 import json
 import os
@@ -22,12 +20,11 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# config
 SNAPSHOT     = "CC-MAIN-2026-12"
-SEED         = 42
-N_SAMPLE     = 600000
+SEED         = 43  # different from fetch_candidate_urls.py's 42, on purpose
+N_SAMPLE     = 1500000
 ATHENA_DB    = "ccindex"
-OUTPUT_FILE  = "data/candidates/raw_pool.jsonl"
+OUTPUT_FILE  = "data/candidates/raw_pool_no_ca.jsonl"
 
 OUTPUT_LOCATION = os.environ['ATHENA_OUTPUT_LOCATION']
 
@@ -55,7 +52,7 @@ def run_query(client, sql):
         for row in page['ResultSet']['Rows']:
             if first:
                 first = False
-                continue  # skip header row
+                continue
             rows.append(row['Data'][0]['VarCharValue'])
     return rows
 
@@ -69,11 +66,12 @@ def main():
         WHERE crawl = '{SNAPSHOT}'
           AND subset = 'warc'
           AND content_languages = 'eng'
+          AND url_host_tld != 'ca'
         LIMIT {N_SAMPLE}
     """
 
-    print(f"Snapshot : {SNAPSHOT}")
-    print(f"Running Athena query (30-60s)...")
+    print(f"Snapshot : {SNAPSHOT}  (excluding .ca)")
+    print(f"Running Athena query...")
 
     urls = run_query(client, sql)
     random.seed(SEED)

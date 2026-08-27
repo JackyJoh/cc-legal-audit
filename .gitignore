@@ -6,5 +6,6 @@ ccData/
 *.csv
 .venv/
 
-# raw Athena pull, 600k URLs / ~54MB, regenerate via fetch_candidate_urls.py
+# raw Athena pulls, regenerate via fetch_candidate_urls.py / fetch_raw_pool_no_ca.py
 data/candidates/raw_pool.jsonl
+data/candidates/raw_pool_no_ca.jsonl

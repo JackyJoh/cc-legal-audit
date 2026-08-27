@@ -1,6 +1,6 @@
 """
 Turns the raw Athena pool (fetch_candidate_urls.py output) into the actual
-batch we hand to the LLM labeling agent.
+batch that is handed to the LLM labeling agent.
 
 Legal URLs are a tiny fraction of the raw crawl (about 0.2-0.3%, per the
 archived rule-based classifier's own validation numbers), so pure random
@@ -35,7 +35,7 @@ import random
 import sys
 from urllib.parse import urlparse
 
-ARCHIVE_DIR = os.path.join(os.path.dirname(__file__), "archive", "rule-based")
+ARCHIVE_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "archive", "rule-based")
 sys.path.insert(0, ARCHIVE_DIR)
 from URL_Classifier import classify, InWhitelist  # noqa: E402
 
