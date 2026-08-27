@@ -1,0 +1,10 @@
+{"url": "https://www.law.cornell.edu/uscode/text/17/107", "expected_label": "legal", "note": "US federal statute text, 17 U.S.C. 107 (fair use)"}
+{"url": "https://www.legislation.gov.uk/ukpga/2010/15/section/4", "expected_label": "legal", "note": "UK statute text, Equality Act 2010 s.4 (protected characteristics)"}
+{"url": "https://laws-lois.justice.gc.ca/eng/acts/c-46/section-231.html", "expected_label": "legal", "note": "Canadian statute text, Criminal Code s.231 (murder classification)"}
+{"url": "https://california.public.law/codes/ca_evid_code_section_351", "expected_label": "legal", "note": "US state statute text, California Evidence Code s.351"}
+{"url": "https://caselaw.nationalarchives.gov.uk/ewhc/ch/2026/2191", "expected_label": "legal", "note": "UK court judgment, Thomas James Francis & Ors v Silver Law LLP, EWHC 2191 (Ch)"}
+{"url": "https://www.legislation.gov.uk/ukpga/2010/15/contents", "expected_label": "non_legal", "note": "table of contents / index page for the same Act as the legal example above, not the statute text itself"}
+{"url": "https://www.uscourts.gov/", "expected_label": "non_legal", "note": "bare homepage of a primary legal source domain, navigation only"}
+{"url": "https://www.law.cornell.edu/", "expected_label": "non_legal", "note": "LII homepage, contrast pair with the legal example on the same domain"}
+{"url": "https://en.wikipedia.org/wiki/Miranda_warning", "expected_label": "non_legal", "note": "encyclopedia commentary about a legal doctrine, not a primary source"}
+{"url": "https://www.findlaw.com/", "expected_label": "non_legal", "note": "legal marketing/information site homepage, not a primary legal source"}

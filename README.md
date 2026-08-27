@@ -27,10 +27,18 @@ Standard LLM pre-training pipelines apply a uniform Jaccard similarity threshold
 
 ## Code
 
+- `fetch_candidate_urls.py`: Samples raw URLs from a CC snapshot via Athena TABLESAMPLE and writes them to `data/candidates/raw_pool.jsonl`. Pure sourcing, no classification.
+- `build_label_batch.py`: Turns that raw pool into the batch actually handed to the labeling agent. Legal URLs are a tiny fraction of the raw crawl, so it mixes in rule-based prefilter hits (to boost legal density) and synthetic homepage URLs for whitelisted domains (deliberate hard negatives for the index-page-vs-filing failure mode), alongside a matching sample of raw random URLs. Writes `data/candidates/candidates.jsonl`.
+
+### Archive: rule-based classifier (`archive/rule-based/`)
+
+Superseded by the char n-gram TF-IDF + logistic regression approach (see Approach above), kept for reference.
+
 - `URL_Classifier.py`: URL-based legal/non-legal classifier. Two-layer architecture: curated domain whitelist (`wl_candidates.txt`) checked first, then strict keyword matching on the hostname only (path ignored to prevent false positives).
 - `WL_Builder.py`: Discovers candidate legal domains from a CC snapshot via Athena. Queries `url_host_name` grouped by page count and writes results to `wl_candidates.txt` for manual triage.
 - `wl_candidates.txt`: Triaged whitelist of primary legal source domains (courts, legislatures, statute repositories). One entry per line; suffix matching at runtime covers all subdomains.
 - `CC_Classifier_Test.py`: Samples URLs from a CC snapshot via Athena TABLESAMPLE, classifies them, and prints positives tagged `[WL]` or `[KW]` plus a negative sample for manual precision/recall review.
+- `cl_validation_results.txt`: External recall validation of the rule-based classifier against CourtListener bulk opinion data.
 
 ## Paper
 University of Florida undergraduate research.
