@@ -9,3 +9,5 @@ ccData/
 # raw Athena pulls, regenerate via fetch_candidate_urls.py / fetch_raw_pool_no_ca.py
 data/candidates/raw_pool.jsonl
 data/candidates/raw_pool_no_ca.jsonl
+# CourtListener API page cache, quota-expensive to refetch
+data/candidates/_cl_courts_cache.jsonl

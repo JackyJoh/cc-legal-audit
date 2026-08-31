@@ -1,0 +1,110 @@
+{"host": "afcca.law.af.mil", "registered_domain": "af.mil", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["MA"], "example_court": "United States Air Force Court of Criminal Appeals"}
+{"host": "www.akleg.gov", "registered_domain": "akleg.gov", "sources": ["seed:us-legislature"], "n_courts": 0, "jurisdictions": [], "example_court": null}
+{"host": "www.asbca.mil", "registered_domain": "asbca.mil", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["FS"], "example_court": "Armed Services Board of Contract Appeals"}
+{"host": "www.azleg.gov", "registered_domain": "azleg.gov", "sources": ["seed:us-legislature"], "n_courts": 0, "jurisdictions": [], "example_court": null}
+{"host": "leginfo.legislature.ca.gov", "registered_domain": "ca.gov", "sources": ["seed:us-legislature"], "n_courts": 0, "jurisdictions": [], "example_court": null}
+{"host": "leg.colorado.gov", "registered_domain": "colorado.gov", "sources": ["seed:us-legislature"], "n_courts": 0, "jurisdictions": [], "example_court": null}
+{"host": "www.cga.ct.gov", "registered_domain": "ct.gov", "sources": ["seed:us-legislature"], "n_courts": 0, "jurisdictions": [], "example_court": null}
+{"host": "www.dccourts.gov", "registered_domain": "dccourts.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["S"], "example_court": "District of Columbia Court of Appeals"}
+{"host": "courts.delaware.gov", "registered_domain": "delaware.gov", "sources": ["cl-courts"], "n_courts": 3, "jurisdictions": ["SS"], "example_court": "Delaware Court of Common Pleas"}
+{"host": "legis.delaware.gov", "registered_domain": "delaware.gov", "sources": ["seed:us-legislature"], "n_courts": 0, "jurisdictions": [], "example_court": null}
+{"host": "www.fjc.gov", "registered_domain": "fjc.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["FB"], "example_court": "United States Bankruptcy Court, D. Tennessee"}
+{"host": "www.flcourts.org", "registered_domain": "flcourts.org", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["SA"], "example_court": "District Court of Appeal of Florida"}
+{"host": "www.floridasupremecourt.org", "registered_domain": "floridasupremecourt.org", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["S"], "example_court": "Supreme Court of Florida"}
+{"host": "www.legis.ga.gov", "registered_domain": "ga.gov", "sources": ["seed:us-legislature"], "n_courts": 0, "jurisdictions": [], "example_court": null}
+{"host": "www.capitol.hawaii.gov", "registered_domain": "hawaii.gov", "sources": ["seed:us-legislature"], "n_courts": 0, "jurisdictions": [], "example_court": null}
+{"host": "legislature.idaho.gov", "registered_domain": "idaho.gov", "sources": ["seed:us-legislature"], "n_courts": 0, "jurisdictions": [], "example_court": null}
+{"host": "www.ilga.gov", "registered_domain": "ilga.gov", "sources": ["seed:us-legislature"], "n_courts": 0, "jurisdictions": [], "example_court": null}
+{"host": "iga.in.gov", "registered_domain": "in.gov", "sources": ["seed:us-legislature"], "n_courts": 0, "jurisdictions": [], "example_court": null}
+{"host": "www.legis.iowa.gov", "registered_domain": "iowa.gov", "sources": ["seed:us-legislature"], "n_courts": 0, "jurisdictions": [], "example_court": null}
+{"host": "www.kslegislature.gov", "registered_domain": "kslegislature.gov", "sources": ["seed:us-legislature"], "n_courts": 0, "jurisdictions": [], "example_court": null}
+{"host": "legislature.ky.gov", "registered_domain": "ky.gov", "sources": ["seed:us-legislature"], "n_courts": 0, "jurisdictions": [], "example_court": null}
+{"host": "www.legis.la.gov", "registered_domain": "la.gov", "sources": ["seed:us-legislature"], "n_courts": 0, "jurisdictions": [], "example_court": null}
+{"host": "legislature.maine.gov", "registered_domain": "maine.gov", "sources": ["seed:us-legislature"], "n_courts": 0, "jurisdictions": [], "example_court": null}
+{"host": "malegislature.gov", "registered_domain": "malegislature.gov", "sources": ["seed:us-legislature"], "n_courts": 0, "jurisdictions": [], "example_court": null}
+{"host": "mgaleg.maryland.gov", "registered_domain": "maryland.gov", "sources": ["seed:us-legislature"], "n_courts": 0, "jurisdictions": [], "example_court": null}
+{"host": "courts.mi.gov", "registered_domain": "mi.gov", "sources": ["cl-courts"], "n_courts": 2, "jurisdictions": ["S", "SA"], "example_court": "Michigan Supreme Court"}
+{"host": "www.legislature.mi.gov", "registered_domain": "mi.gov", "sources": ["seed:us-legislature"], "n_courts": 0, "jurisdictions": [], "example_court": null}
+{"host": "www.revisor.mn.gov", "registered_domain": "mn.gov", "sources": ["seed:us-legislature"], "n_courts": 0, "jurisdictions": [], "example_court": null}
+{"host": "revisor.mo.gov", "registered_domain": "mo.gov", "sources": ["seed:us-legislature"], "n_courts": 0, "jurisdictions": [], "example_court": null}
+{"host": "leg.mt.gov", "registered_domain": "mt.gov", "sources": ["seed:us-legislature"], "n_courts": 0, "jurisdictions": [], "example_court": null}
+{"host": "www.ncleg.gov", "registered_domain": "ncleg.gov", "sources": ["seed:us-legislature"], "n_courts": 0, "jurisdictions": [], "example_court": null}
+{"host": "www.ndlegis.gov", "registered_domain": "ndlegis.gov", "sources": ["seed:us-legislature"], "n_courts": 0, "jurisdictions": [], "example_court": null}
+{"host": "nebraskalegislature.gov", "registered_domain": "nebraskalegislature.gov", "sources": ["seed:us-legislature"], "n_courts": 0, "jurisdictions": [], "example_court": null}
+{"host": "www.nmlegis.gov", "registered_domain": "nmlegis.gov", "sources": ["seed:us-legislature"], "n_courts": 0, "jurisdictions": [], "example_court": null}
+{"host": "www.nysenate.gov", "registered_domain": "nysenate.gov", "sources": ["seed:us-legislature"], "n_courts": 0, "jurisdictions": [], "example_court": null}
+{"host": "codes.ohio.gov", "registered_domain": "ohio.gov", "sources": ["seed:us-legislature"], "n_courts": 0, "jurisdictions": [], "example_court": null}
+{"host": "www.oklegislature.gov", "registered_domain": "oklegislature.gov", "sources": ["seed:us-legislature"], "n_courts": 0, "jurisdictions": [], "example_court": null}
+{"host": "www.oregonlegislature.gov", "registered_domain": "oregonlegislature.gov", "sources": ["seed:us-legislature"], "n_courts": 0, "jurisdictions": [], "example_court": null}
+{"host": "www.pacourts.us", "registered_domain": "pacourts.us", "sources": ["cl-courts"], "n_courts": 4, "jurisdictions": ["S", "SA", "SS"], "example_court": "Supreme Court of Pennsylvania"}
+{"host": "webserver.rilegislature.gov", "registered_domain": "rilegislature.gov", "sources": ["seed:us-legislature"], "n_courts": 0, "jurisdictions": [], "example_court": null}
+{"host": "www.scstatehouse.gov", "registered_domain": "scstatehouse.gov", "sources": ["seed:us-legislature"], "n_courts": 0, "jurisdictions": [], "example_court": null}
+{"host": "sdlegislature.gov", "registered_domain": "sdlegislature.gov", "sources": ["seed:us-legislature"], "n_courts": 0, "jurisdictions": [], "example_court": null}
+{"host": "legislature.state.al.us", "registered_domain": "state.al.us", "sources": ["seed:us-legislature"], "n_courts": 0, "jurisdictions": [], "example_court": null}
+{"host": "www.arkleg.state.ar.us", "registered_domain": "state.ar.us", "sources": ["seed:us-legislature"], "n_courts": 0, "jurisdictions": [], "example_court": null}
+{"host": "www.leg.state.fl.us", "registered_domain": "state.fl.us", "sources": ["seed:us-legislature"], "n_courts": 0, "jurisdictions": [], "example_court": null}
+{"host": "www.courts.state.hi.us", "registered_domain": "state.hi.us", "sources": ["cl-courts"], "n_courts": 2, "jurisdictions": ["S", "SA"], "example_court": "Hawaii Supreme Court"}
+{"host": "billstatus.ls.state.ms.us", "registered_domain": "state.ms.us", "sources": ["seed:us-legislature"], "n_courts": 0, "jurisdictions": [], "example_court": null}
+{"host": "www.gencourt.state.nh.us", "registered_domain": "state.nh.us", "sources": ["seed:us-legislature"], "n_courts": 0, "jurisdictions": [], "example_court": null}
+{"host": "www.njleg.state.nj.us", "registered_domain": "state.nj.us", "sources": ["seed:us-legislature"], "n_courts": 0, "jurisdictions": [], "example_court": null}
+{"host": "www.leg.state.nv.us", "registered_domain": "state.nv.us", "sources": ["seed:us-legislature"], "n_courts": 0, "jurisdictions": [], "example_court": null}
+{"host": "www.legis.state.pa.us", "registered_domain": "state.pa.us", "sources": ["seed:us-legislature"], "n_courts": 0, "jurisdictions": [], "example_court": null}
+{"host": "supremecourt.gov", "registered_domain": "supremecourt.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["F"], "example_court": "Supreme Court of the United States"}
+{"host": "statutes.capitol.texas.gov", "registered_domain": "texas.gov", "sources": ["seed:us-legislature"], "n_courts": 0, "jurisdictions": [], "example_court": null}
+{"host": "www.capitol.tn.gov", "registered_domain": "tn.gov", "sources": ["seed:us-legislature"], "n_courts": 0, "jurisdictions": [], "example_court": null}
+{"host": "ecf.sdb.uscourts.gov", "registered_domain": "uscourts.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["FB"], "example_court": "United States Bankruptcy Court, D. South Dakota"}
+{"host": "www.armfor.uscourts.gov", "registered_domain": "uscourts.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["MA"], "example_court": "Court of Appeals for the Armed Forces"}
+{"host": "www.ca1.uscourts.gov", "registered_domain": "uscourts.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["F"], "example_court": "Court of Appeals for the First Circuit"}
+{"host": "www.ca10.uscourts.gov", "registered_domain": "uscourts.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["F"], "example_court": "Court of Appeals for the Tenth Circuit"}
+{"host": "www.ca11.uscourts.gov", "registered_domain": "uscourts.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["F"], "example_court": "Court of Appeals for the Eleventh Circuit"}
+{"host": "www.ca2.uscourts.gov", "registered_domain": "uscourts.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["F"], "example_court": "Court of Appeals for the Second Circuit"}
+{"host": "www.ca3.uscourts.gov", "registered_domain": "uscourts.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["F"], "example_court": "Court of Appeals for the Third Circuit"}
+{"host": "www.ca4.uscourts.gov", "registered_domain": "uscourts.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["F"], "example_court": "Court of Appeals for the Fourth Circuit"}
+{"host": "www.ca5.uscourts.gov", "registered_domain": "uscourts.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["F"], "example_court": "Court of Appeals for the Fifth Circuit"}
+{"host": "www.ca6.uscourts.gov", "registered_domain": "uscourts.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["F"], "example_court": "Court of Appeals for the Sixth Circuit"}
+{"host": "www.ca7.uscourts.gov", "registered_domain": "uscourts.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["F"], "example_court": "Court of Appeals for the Seventh Circuit"}
+{"host": "www.ca8.uscourts.gov", "registered_domain": "uscourts.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["F"], "example_court": "Court of Appeals for the Eighth Circuit"}
+{"host": "www.ca9.uscourts.gov", "registered_domain": "uscourts.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["F"], "example_court": "Court of Appeals for the Ninth Circuit"}
+{"host": "www.cadc.uscourts.gov", "registered_domain": "uscourts.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["F"], "example_court": "Court of Appeals for the D.C. Circuit"}
+{"host": "www.cafc.uscourts.gov", "registered_domain": "uscourts.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["F"], "example_court": "Court of Appeals for the Federal Circuit"}
+{"host": "www.ncwb.uscourts.gov", "registered_domain": "uscourts.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["FB"], "example_court": "United States Bankruptcy Court, W.D. North Carolina"}
+{"host": "www.ncwd.uscourts.gov", "registered_domain": "uscourts.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["FD"], "example_court": "District Court, W.D. South Carolina"}
+{"host": "www.ndd.uscourts.gov", "registered_domain": "uscourts.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["FB"], "example_court": "United States Bankruptcy Court, D. North Dakota"}
+{"host": "www.ohnb.uscourts.gov", "registered_domain": "uscourts.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["FB"], "example_court": "United States Bankruptcy Court, N.D. Ohio"}
+{"host": "www.ohsb.uscourts.gov", "registered_domain": "uscourts.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["FB"], "example_court": "United States Bankruptcy Court, S.D. Ohio"}
+{"host": "www.ohsd.uscourts.gov", "registered_domain": "uscourts.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["FD"], "example_court": "District Court, S.D. Ohio"}
+{"host": "www.okeb.uscourts.gov", "registered_domain": "uscourts.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["FB"], "example_court": "United States Bankruptcy Court, E.D. Oklahoma"}
+{"host": "www.oked.uscourts.gov", "registered_domain": "uscourts.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["FD"], "example_court": "District Court, E.D. Oklahoma"}
+{"host": "www.oknb.uscourts.gov", "registered_domain": "uscourts.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["FB"], "example_court": "United States Bankruptcy Court, N.D. Oklahoma"}
+{"host": "www.oknd.uscourts.gov", "registered_domain": "uscourts.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["FD"], "example_court": "District Court, N.D. Oklahoma"}
+{"host": "www.okwb.uscourts.gov", "registered_domain": "uscourts.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["FB"], "example_court": "United States Bankruptcy Court, W.D. Oklahoma"}
+{"host": "www.orb.uscourts.gov", "registered_domain": "uscourts.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["FB"], "example_court": "United States Bankruptcy Court, D. Oregon"}
+{"host": "www.ord.uscourts.gov", "registered_domain": "uscourts.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["FD"], "example_court": "District Court, D. Oregon"}
+{"host": "www.paeb.uscourts.gov", "registered_domain": "uscourts.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["FB"], "example_court": "United States Bankruptcy Court, E.D. Pennsylvania"}
+{"host": "www.paed.uscourts.gov", "registered_domain": "uscourts.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["FD"], "example_court": "District Court, E.D. Pennsylvania"}
+{"host": "www.pamb.uscourts.gov", "registered_domain": "uscourts.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["FB"], "example_court": "United States Bankruptcy Court, M.D. Pennsylvania"}
+{"host": "www.pamd.uscourts.gov", "registered_domain": "uscourts.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["FD"], "example_court": "District Court, M.D. Pennsylvania"}
+{"host": "www.pawb.uscourts.gov", "registered_domain": "uscourts.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["FB"], "example_court": "United States Bankruptcy Court, W.D. Pennsylvania"}
+{"host": "www.pawd.uscourts.gov", "registered_domain": "uscourts.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["FD"], "example_court": "District Court, W.D. Pennsylvania"}
+{"host": "www.rib.uscourts.gov", "registered_domain": "uscourts.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["FB"], "example_court": "United States Bankruptcy Court, D. Rhode Island"}
+{"host": "www.rid.uscourts.gov", "registered_domain": "uscourts.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["FD"], "example_court": "District Court, D. Rhode Island"}
+{"host": "www.scb.uscourts.gov", "registered_domain": "uscourts.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["FB"], "example_court": "United States Bankruptcy Court, D. South Carolina"}
+{"host": "www.scd.uscourts.gov", "registered_domain": "uscourts.gov", "sources": ["cl-courts"], "n_courts": 2, "jurisdictions": ["FD"], "example_court": "District Court, D. South Carolina"}
+{"host": "www.sdd.uscourts.gov", "registered_domain": "uscourts.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["FD"], "example_court": "District Court, D. South Dakota"}
+{"host": "www.tneb.uscourts.gov", "registered_domain": "uscourts.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["FB"], "example_court": "United States Bankruptcy Court, E.D. Tennessee"}
+{"host": "www.tned.uscourts.gov", "registered_domain": "uscourts.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["FD"], "example_court": "District Court, E.D. Tennessee"}
+{"host": "www.tnmb.uscourts.gov", "registered_domain": "uscourts.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["FB"], "example_court": "United States Bankruptcy Court, M.D. Tennessee"}
+{"host": "www.tnmd.uscourts.gov", "registered_domain": "uscourts.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["FD"], "example_court": "District Court, M.D. Tennessee"}
+{"host": "www.tnwb.uscourts.gov", "registered_domain": "uscourts.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["FB"], "example_court": "United States Bankruptcy Court, W.D. Tennessee"}
+{"host": "www.tnwd.uscourts.gov", "registered_domain": "uscourts.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["FD"], "example_court": "District Court, W.D. Tennessee"}
+{"host": "www.txeb.uscourts.gov", "registered_domain": "uscourts.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["FB"], "example_court": "United States Bankruptcy Court, E.D. Texas"}
+{"host": "www.txnb.uscourts.gov", "registered_domain": "uscourts.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["FB"], "example_court": "United States Bankruptcy Court, N.D. Texas"}
+{"host": "www.uscourts.gov", "registered_domain": "uscourts.gov", "sources": ["cl-courts"], "n_courts": 4, "jurisdictions": ["FD"], "example_court": "District Court, D. Ohio"}
+{"host": "le.utah.gov", "registered_domain": "utah.gov", "sources": ["seed:us-legislature"], "n_courts": 0, "jurisdictions": [], "example_court": null}
+{"host": "legislature.vermont.gov", "registered_domain": "vermont.gov", "sources": ["seed:us-legislature"], "n_courts": 0, "jurisdictions": [], "example_court": null}
+{"host": "law.lis.virginia.gov", "registered_domain": "virginia.gov", "sources": ["seed:us-legislature"], "n_courts": 0, "jurisdictions": [], "example_court": null}
+{"host": "app.leg.wa.gov", "registered_domain": "wa.gov", "sources": ["seed:us-legislature"], "n_courts": 0, "jurisdictions": [], "example_court": null}
+{"host": "en.wikipedia.org", "registered_domain": "wikipedia.org", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["SS"], "example_court": "New York Surrogate's Court"}
+{"host": "docs.legis.wisconsin.gov", "registered_domain": "wisconsin.gov", "sources": ["seed:us-legislature"], "n_courts": 0, "jurisdictions": [], "example_court": null}
+{"host": "www.wvlegislature.gov", "registered_domain": "wvlegislature.gov", "sources": ["seed:us-legislature"], "n_courts": 0, "jurisdictions": [], "example_court": null}
+{"host": "www.wyoleg.gov", "registered_domain": "wyoleg.gov", "sources": ["seed:us-legislature"], "n_courts": 0, "jurisdictions": [], "example_court": null}
