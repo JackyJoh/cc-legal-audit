@@ -1,0 +1,5 @@
+{"url": "https://malegislature.gov/cleanenergyfuture/Details?locationId=11", "reason": "404 not found", "batch_id": "host_sample_batch.jsonl", "run_id": "2026-08-31-hostsample-w2"}
+{"url": "https://www.ca9.uscourts.gov/media/audio/?20260302/24-6689/", "reason": "404 not found", "batch_id": "host_sample_batch.jsonl", "run_id": "2026-08-31-hostsample-w2"}
+{"url": "https://www.ca9.uscourts.gov/media/view_subpage.php?pk_id=0000003915", "reason": "404 not found", "batch_id": "host_sample_batch.jsonl", "run_id": "2026-08-31-hostsample-w2"}
+{"url": "https://www.dccourts.gov/ko/sites/default/files/2025-09/N%27Jai%20v%20US%20DOEduc%2024-SP-0735.pdf", "reason": "403 forbidden; alternate non-/ko/ URL also 403 blocked, no accessible mirror found", "batch_id": "host_sample_batch.jsonl", "run_id": "2026-08-31-hostsample-w2"}
+{"url": "https://www.supremecourt.gov/docketfiles/12-526.htm", "reason": "403 forbidden; no mirror found via search", "batch_id": "host_sample_batch.jsonl", "run_id": "2026-08-31-hostsample-w2"}
