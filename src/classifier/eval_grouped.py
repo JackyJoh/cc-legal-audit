@@ -42,12 +42,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import precision_score, recall_score, f1_score
 
-LABELED_FILES = [
-    "data/processed/labeled_urls.jsonl",
-    "data/processed/targeted_labeled_urls.jsonl",
-    # written once the host-sample batch has been labeled; skipped if absent
-    "data/processed/host_sample_labeled_urls.jsonl",
-]
+LABELED_FILES = ["data/processed/labeled_urls.jsonl"]
 SEED = 42
 OPERATING_THRESHOLD = 0.85
 THRESHOLDS = [0.5, 0.65, 0.75, 0.85, 0.9]

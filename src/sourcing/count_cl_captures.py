@@ -1,28 +1,22 @@
 """
-How deeply does Common Crawl actually capture each candidate host?
+Measures how many pages Common Crawl actually captured per candidate host,
+so hosts can be ranked by real crawl depth rather than CourtListener docket
+size (the two are uncorrelated, and a host with few captures can't support
+a clean sample).
 
-Ranks by CC capture depth, not by CourtListener opinion volume - the two are
-uncorrelated, and a court with a huge CL docket but a handful of pages in the
-crawl cannot support a clean sample and is not worth a labeling slot.
+Two choices worth flagging:
 
-Two deliberate choices:
+1. Filters on url_host_name, never url_host_registered_domain, which is far
+   coarser: mn.gov covers both revisor.mn.gov (statutes) and gisdata.mn.gov
+   (map data), and af.mil covers one appeals court plus the entire Air
+   Force. Each directory host is queried under both its bare and www.
+   spellings, since Common Crawl stores those as separate hosts.
 
-1. Filter on url_host_name, never url_host_registered_domain. A registered
-   domain is far coarser than a hostname: mn.gov covers revisor.mn.gov
-   (statutes) and gisdata.mn.gov (map data alike), and af.mil covers one
-   military appeals court plus the entire Air Force. Filtering on the
-   registered domain therefore measures thousands of sites the directory
-   never named and that will never be sampled. Each directory host is queried
-   under both its bare and www. spellings, since Common Crawl treats those as
-   separate hosts and the directory only records one of them.
+2. One query, one scan: the whole candidate set goes in a single IN list so
+   the crawl partition is scanned once, not once per chunk.
 
-2. One query, one scan. The whole candidate set goes in a single IN list
-   rather than being chunked - every chunk would re-scan the same crawl
-   partition and multiply the bill. Conditional aggregation gets the
-   all/eligible/pdf breakdowns out of that one pass.
-
-n_pdf is collected purely to document the HTML-only scope limitation with a
-real number in the paper, not because PDFs are sampled.
+n_pdf is collected only to document the HTML-only scope limit with a real
+number, not because PDFs are sampled.
 
 Output: data/candidates/cc_host_counts.jsonl
 """
@@ -39,15 +33,13 @@ SNAPSHOT    = "CC-MAIN-2026-12"
 HOSTS_FILE  = "data/candidates/court_hostnames.jsonl"
 OUTPUT_FILE = "data/candidates/cc_host_counts.jsonl"
 
-# Eligibility = the deployment distribution the classifier actually sees.
-# Mirrors fetch_candidate_urls.py's eng filter, plus the HTML-only decision.
+# Eligibility mirrors fetch_candidate_urls.py's eng filter, plus HTML-only.
 #
-# HTML means the HTML family, not the single string 'text/html'. Many statute
-# sites are served as application/xhtml+xml, and matching text/html exactly
-# discards them wholesale - law.lis.virginia.gov, one of the largest domains
-# in the existing training set, drops to a single eligible page. XHTML is
-# HTML; the distinction here is serialization, not content type. PDFs are
-# still excluded, which is what the HTML-only decision was actually about.
+# HTML means the HTML family, not just 'text/html'. Many statute sites serve
+# application/xhtml+xml; matching text/html alone drops law.lis.virginia.gov,
+# one of the largest domains in the training set, to a single eligible page.
+# XHTML is HTML, just a different serialization. PDFs are still excluded,
+# which is what HTML-only is actually about.
 HTML_MIMES = ("'text/html'", "'application/xhtml+xml'")
 ELIGIBLE = ("fetch_status = 200 "
             f"AND content_mime_detected IN ({', '.join(HTML_MIMES)}) "
@@ -101,11 +93,9 @@ def main():
 
     rows, stats = run_query(client(), sql)
 
-    # One row per publisher, not per hostname. Common Crawl stores
-    # 'example.gov' and 'www.example.gov' as separate hosts, but they are the
-    # same site: counting them apart splits a publisher's depth in two and
-    # would let it take two slots downstream. hosts[] keeps the spellings the
-    # crawl actually holds, which is what the sampling query needs to ask for.
+    # One row per publisher: Common Crawl stores 'example.gov' and
+    # 'www.example.gov' as separate hosts, but counting them apart would
+    # split a publisher's depth in two and let it take two slots downstream.
     merged = {}
     for row in rows:
         host = row["host"]

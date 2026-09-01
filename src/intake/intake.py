@@ -1,38 +1,46 @@
 """
-One-time merge of the raw labeling agent output (data/labels/run_*.jsonl,
-data/labels/skipped_*.jsonl) into a single clean training file.
+Merges all labeling-agent output into one training file, tagging every row
+with which sourcing pass produced it:
 
-Handles the mess that six parallel workers actually produced:
-  - a handful of URLs one worker fetched that were never in the candidate
-    batch (it strayed off its assigned slice), dropped and logged
-  - a few URLs labeled twice by the same worker (identical or near-identical
-    calls both times), deduped to one
-  - any URL that ended up both labeled and skipped, resolved in favor of
-    the label since a label means the content was actually read
+  original  the original 2990-URL candidate batch (rule-based prefilter
+            hits + raw random URLs + synthetic homepage negatives), scoped
+            to data/candidates/candidates.jsonl. The only batch with
+            manual corrections applied (see below).
+  target    the error-driven +500 batch that targeted the false-negative
+            domains and URL-shape gaps found after training on the
+            original batch, scoped to data/candidates/targeted_batch.jsonl.
+  cl        the CourtListener-derived host sample (fetch_cl_hostnames.py's
+            court + legislature domains, sampled via fetch_cl_urls.py),
+            scoped to data/candidates/host_sample_batch.jsonl.
+
+Each batch is merged independently with the same logic: a labeled row whose
+URL isn't in that batch's own candidate file is dropped as contamination, a
+duplicate label for the same URL is deduped, a conflicting duplicate label
+is logged instead of silently picked, and a label beats a skip for the same
+URL. The three results are then concatenated into one file.
+
+Corrections (original batch only). The labeling prompt originally allowed a page
+that "directly links to" a filing to count as legal, but Common Crawl only
+captures a page's own HTML, not what it links to, so a landing page with no
+document text on the page itself is a false positive. LINK_ONLY_CORRECTIONS
+(18 URLs) is that failure, hand-confirmed by rationale text. A second
+worker applied one templated rationale across a whole Justice Laws Canada
+URL family without checking each page; INDEX_PAGE_CORRECTIONS (16 URLs) is
+that failure, confirmed by fetching 5 of them directly. Both are corrected
+to non_legal here rather than discarded, since they're useful hard
+negatives: right domain, wrong page type.
 
 Output: data/processed/labeled_urls.jsonl, one clean {"url", "label",
-"confidence", "rationale", "run_id", "labeled_at"} object per line.
+"confidence", "rationale", "run_id", "labeled_at", "source"} object per
+line.
 """
 import json
 import glob
 import os
 
-CANDIDATES_FILE = "data/candidates/candidates.jsonl"
 LABELS_DIR = "data/labels"
 OUTPUT_FILE = "data/processed/labeled_urls.jsonl"
 
-# Manual correction pass: the labeling prompt's definition allowed a page
-# that "directly links to" a filing/opinion to count as legal, on the
-# assumption the linked document would still be reachable. But Common
-# Crawl only captures the fetched page's own HTML, not whatever a link on
-# that page points to, so a landing/index page that merely links out to a
-# PDF has no legal text on the page itself and is useless (or actively
-# misleading) for the downstream BERTopic/entropy analysis. These 18 were
-# manually confirmed by hand-scanning the legal-labeled set and flagged
-# by rationale text ("links to", "linked pdf", etc.) for containing no
-# actual document text on the page. Corrected to non_legal here, since
-# they're real, useful hard negatives (right domain, wrong page type),
-# not noise to discard.
 LINK_ONLY_CORRECTIONS = {
     "https://laws-lois.justice.gc.ca/eng/acts/O-2.7/index.html",
     "https://laws-lois.justice.gc.ca/eng/acts/C-10.15/",
@@ -54,16 +62,6 @@ LINK_ONLY_CORRECTIONS = {
     "https://www.judiciary.uk/judgments/sana-musharraf-v-r/",
 }
 
-# Second correction pass: Justice Laws Canada (laws-lois.justice.gc.ca and
-# its mirrors) uses index.html / PITIndex.html / FullText.html / a bare
-# act-root URL for landing/metadata pages that link out to the actual text
-# in separate HTML/XML/PDF files, and numbered pages (page-N.html) for the
-# actual text. One worker applied an identical templated rationale
-# ("Full-text landing page of a specific Canadian federal regulation or
-# act...") across this whole URL family without distinguishing the two,
-# an instance of the exact per-URL-verification failure the labeling
-# prompt was written to prevent. Confirmed by directly fetching 5 of these
-# and finding metadata/links only, no regulatory text, in all 5.
 INDEX_PAGE_CORRECTIONS = {
     "https://laws-lois.justice.gc.ca/eng/regulations/SOR-2007-123/PITIndex.html",
     "https://laws-lois.justice.gc.ca/eng/regulations/SOR-92-446/PITIndex.html",
@@ -82,6 +80,37 @@ INDEX_PAGE_CORRECTIONS = {
     "https://lois-laws.justice.gc.ca/eng/regulations/SOR-61-507/index.html",
     "https://www.laws.justice.gc.ca/eng/acts/G-11.8/?wbdisable=true",
 }
+
+# name, candidate file, run-file globs, skipped-file globs, corrections
+# (each correction is a (url_set, note) pair applied only within this batch)
+BATCHES = [
+    {
+        "source": "original",
+        "candidates_file": "data/candidates/candidates.jsonl",
+        "run_globs": ["run_2026-08-27-w*.jsonl", "run_2026-08-27-manual.jsonl"],
+        "skipped_globs": ["skipped_2026-08-27-w*.jsonl"],
+        "corrections": [
+            (LINK_ONLY_CORRECTIONS,
+             "[corrected: page itself has no legal text, only links to one]"),
+            (INDEX_PAGE_CORRECTIONS,
+             "[corrected: landing/index page, no regulatory text present on page itself]"),
+        ],
+    },
+    {
+        "source": "target",
+        "candidates_file": "data/candidates/targeted_batch.jsonl",
+        "run_globs": ["run_2026-08-27-targeted-w*.jsonl"],
+        "skipped_globs": ["skipped_2026-08-27-targeted-w*.jsonl"],
+        "corrections": [],
+    },
+    {
+        "source": "cl",
+        "candidates_file": "data/candidates/host_sample_batch.jsonl",
+        "run_globs": ["run_2026-08-31-hostsample-w*.jsonl"],
+        "skipped_globs": ["skipped_2026-08-31-hostsample-w*.jsonl"],
+        "corrections": [],
+    },
+]
 
 
 def load_candidates(path):
@@ -104,13 +133,20 @@ def load_jsonl(path):
     return rows
 
 
-def main():
-    candidates = load_candidates(CANDIDATES_FILE)
+def glob_all(patterns):
+    paths = []
+    for pattern in patterns:
+        paths.extend(glob.glob(os.path.join(LABELS_DIR, pattern)))
+    return sorted(paths)
+
+
+def merge_batch(batch):
+    candidates = load_candidates(batch["candidates_file"])
 
     labeled_by_url = {}
     contamination = []
     same_url_conflicts = []
-    for path in sorted(glob.glob(os.path.join(LABELS_DIR, "run_*.jsonl"))):
+    for path in glob_all(batch["run_globs"]):
         for row in load_jsonl(path):
             url = row["url"]
             if url not in candidates:
@@ -124,60 +160,86 @@ def main():
             labeled_by_url[url] = row
 
     skipped_urls = set()
-    for path in sorted(glob.glob(os.path.join(LABELS_DIR, "skipped_*.jsonl"))):
+    for path in glob_all(batch["skipped_globs"]):
         for row in load_jsonl(path):
             if row["url"] in candidates:
                 skipped_urls.add(row["url"])
-
     skipped_only = skipped_urls - set(labeled_by_url)
 
-    corrected = 0
-    for url in LINK_ONLY_CORRECTIONS:
-        row = labeled_by_url.get(url)
-        if row and row["label"] == "legal":
-            row["label"] = "non_legal"
-            row["rationale"] = (row.get("rationale") or "") + \
-                " [corrected: page itself has no legal text, only links to one]"
-            corrected += 1
+    correction_counts = []
+    for correction_urls, note in batch["corrections"]:
+        n = 0
+        for url in correction_urls:
+            row = labeled_by_url.get(url)
+            if row and row["label"] == "legal":
+                row["label"] = "non_legal"
+                row["rationale"] = (row.get("rationale") or "") + " " + note
+                n += 1
+        correction_counts.append(n)
 
-    index_corrected = 0
-    for url in INDEX_PAGE_CORRECTIONS:
-        row = labeled_by_url.get(url)
-        if row and row["label"] == "legal":
-            row["label"] = "non_legal"
-            row["rationale"] = (row.get("rationale") or "") + \
-                " [corrected: landing/index page, no regulatory text present on page itself]"
-            index_corrected += 1
+    return {
+        "n_candidates": len(candidates),
+        "labeled_by_url": labeled_by_url,
+        "skipped_only": skipped_only,
+        "contamination": contamination,
+        "same_url_conflicts": same_url_conflicts,
+        "correction_counts": correction_counts,
+    }
 
-    os.makedirs(os.path.dirname(OUTPUT_FILE), exist_ok=True)
-    with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
-        for row in labeled_by_url.values():
-            f.write(json.dumps({
+
+def report(batch, result):
+    labeled = result["labeled_by_url"]
+    legal = sum(1 for r in labeled.values() if r["label"] == "legal")
+    non_legal = sum(1 for r in labeled.values() if r["label"] == "non_legal")
+    other = len(labeled) - legal - non_legal
+    covered = len(labeled) + len(result["skipped_only"])
+
+    print(f"\n--- {batch['source']}  ({batch['candidates_file']}) ---")
+    print(f"Candidates            : {result['n_candidates']}")
+    print(f"Clean labeled         : {len(labeled)}  ({legal} legal, {non_legal} non_legal, {other} other)")
+    for (_, note), n in zip(batch["corrections"], result["correction_counts"]):
+        print(f"Corrections           : {n} (legal -> non_legal, {note})")
+    print(f"Skipped (unlabeled)   : {len(result['skipped_only'])}")
+    print(f"Dropped, not in batch : {len(result['contamination'])}")
+    for row in result["contamination"]:
+        print(f"  - {row['url']}  (from run_id={row.get('run_id')})")
+    print(f"Same-URL label conflicts: {len(result['same_url_conflicts'])}")
+    for prior, row in result["same_url_conflicts"]:
+        print(f"  - {prior['url']}: {prior['run_id']}={prior['label']} vs {row['run_id']}={row['label']}")
+    print(f"Coverage              : {covered} / {result['n_candidates']} candidates accounted for")
+
+
+def main():
+    combined = []
+    seen_elsewhere = {}
+    for batch in BATCHES:
+        result = merge_batch(batch)
+        report(batch, result)
+        for url, row in result["labeled_by_url"].items():
+            if url in seen_elsewhere:
+                print(f"\nWARNING: {url} labeled in both "
+                      f"'{seen_elsewhere[url]}' and '{batch['source']}' batches")
+            seen_elsewhere[url] = batch["source"]
+            combined.append({
                 "url": row["url"],
                 "label": row["label"],
                 "confidence": row.get("confidence"),
                 "rationale": row.get("rationale"),
                 "run_id": row.get("run_id"),
                 "labeled_at": row.get("labeled_at"),
-            }) + "\n")
+                "source": batch["source"],
+            })
 
-    legal = sum(1 for r in labeled_by_url.values() if r["label"] == "legal")
-    non_legal = sum(1 for r in labeled_by_url.values() if r["label"] == "non_legal")
-    other = len(labeled_by_url) - legal - non_legal
+    os.makedirs(os.path.dirname(OUTPUT_FILE), exist_ok=True)
+    with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
+        for row in combined:
+            f.write(json.dumps(row) + "\n")
 
-    print(f"Candidates            : {len(candidates)}")
-    print(f"Clean labeled         : {len(labeled_by_url)}  ({legal} legal, {non_legal} non_legal, {other} other)")
-    print(f"Link-only corrections : {corrected} (legal -> non_legal)")
-    print(f"Index-page corrections: {index_corrected} (legal -> non_legal)")
-    print(f"Skipped (unlabeled)   : {len(skipped_only)}")
-    print(f"Dropped, not in batch : {len(contamination)}")
-    for row in contamination:
-        print(f"  - {row['url']}  (from run_id={row.get('run_id')})")
-    print(f"Same-URL label conflicts: {len(same_url_conflicts)}")
-    for prior, row in same_url_conflicts:
-        print(f"  - {prior['url']}: {prior['run_id']}={prior['label']} vs {row['run_id']}={row['label']}")
-    covered = len(labeled_by_url) + len(skipped_only)
-    print(f"Coverage              : {covered} / {len(candidates)} candidates accounted for")
+    print(f"\n=== combined ===")
+    for batch in BATCHES:
+        n = sum(1 for r in combined if r["source"] == batch["source"])
+        print(f"  {batch['source']:<8} {n}")
+    print(f"Total labeled URLs    : {len(combined)}")
     print(f"Written               : {OUTPUT_FILE}")
 
 

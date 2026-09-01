@@ -14,13 +14,11 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, precision_score, recall_score, f1_score
 
-LABELED_FILES = [
-    "data/processed/labeled_urls.jsonl",
-    "data/processed/targeted_labeled_urls.jsonl",
-]
+LABELED_FILES = ["data/processed/labeled_urls.jsonl"]
 CANDIDATES_FILES = [
     "data/candidates/candidates.jsonl",
     "data/candidates/targeted_batch.jsonl",
+    "data/candidates/host_sample_batch.jsonl",
 ]
 RAW_POOL_FILE = "data/candidates/raw_pool.jsonl"
 SEED = 42
@@ -28,10 +26,10 @@ N_OOS = 20
 # precision over recall on purpose: false positives pollute the (tiny) legal
 # bucket that topic diversity gets measured on, false negatives just get
 # reabsorbed into the (huge) non_legal bucket where they're a rounding error.
-# 0.85, not 0.9: after merging in the targeted +500 batch, the
-# precision/recall curve shifted right (0.9 now gives only 37% recall vs.
-# 55.6% before) - 0.85 is the new best point at ~91% precision / ~61% recall,
-# see data/processed/threshold_sweep_results.csv for the full sweep.
+# 0.85 gives ~91% precision / ~54% recall on the current held-out set, see
+# data/processed/threshold_sweep_results.csv for the full sweep. Recall at
+# this threshold is domain-dependent, not uniform: see the README's
+# "Domain generalization" section for the leave-one-domain-out numbers.
 OPERATING_THRESHOLD = 0.85
 
 
@@ -67,7 +65,7 @@ def main():
     random.seed(SEED)
 
     urls, labels = load_labeled(LABELED_FILES)
-    print(f"Loaded {len(urls)} labeled URLs from {len(LABELED_FILES)} files "
+    print(f"Loaded {len(urls)} labeled URLs "
           f"({labels.count('legal')} legal, {labels.count('non_legal')} non_legal)")
 
     X_train, X_test, y_train, y_test = train_test_split(

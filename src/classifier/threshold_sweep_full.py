@@ -11,10 +11,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import precision_score, recall_score, f1_score
 
-LABELED_FILES = [
-    "data/processed/labeled_urls.jsonl",
-    "data/processed/targeted_labeled_urls.jsonl",
-]
+LABELED_FILES = ["data/processed/labeled_urls.jsonl"]
 SEED = 42
 OUTPUT_CSV = "data/processed/threshold_sweep_results.csv"
 

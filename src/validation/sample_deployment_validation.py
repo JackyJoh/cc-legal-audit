@@ -28,13 +28,11 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split  # noqa: F401 (kept consistent w/ train_classifier.py imports)
 
-LABELED_FILES = [
-    "data/processed/labeled_urls.jsonl",
-    "data/processed/targeted_labeled_urls.jsonl",
-]
+LABELED_FILES = ["data/processed/labeled_urls.jsonl"]
 CANDIDATES_FILES = [
     "data/candidates/candidates.jsonl",
     "data/candidates/targeted_batch.jsonl",
+    "data/candidates/host_sample_batch.jsonl",
 ]
 RAW_POOL_FILE = "data/candidates/raw_pool.jsonl"
 SEED = 42

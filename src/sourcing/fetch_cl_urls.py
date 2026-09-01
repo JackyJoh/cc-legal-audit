@@ -1,54 +1,22 @@
 """
-Draw the per-publisher URL sample the labeling agent reads from.
+Pulls Common Crawl URLs for the CourtListener hostnames from
+fetch_cl_hostnames.py, sampled per host, and writes the batch handed to the
+labeling agent.
 
-The positive class currently lives in a handful of registered domains, and
-leave-one-domain-out recall on those domains is zero: the model recognises
-publishers, not law. This step buys breadth - many publishers seen shallowly
-- rather than more depth on the ones already covered. Run eval_grouped.py for
-the current figures.
+Legal positives are concentrated in a few registered domains, and
+leave-one-domain-out recall on them is zero, so this step trades depth for
+breadth: shallow samples from many publishers instead of more examples from
+domains already covered.
 
-Each publisher is sampled twice, because uniform random sampling of a host
-does not do what it looks like it does.
+Two draws per publisher: K_A random URLs (hard negatives, e.g. nav, listing,
+and admin pages) and one URL per distinct two-segment path prefix up to K_B,
+so a small section isn't drowned out by a high-fanout template like a
+paginated bill-status page. Sampling uses a seeded hash for reproducibility.
+Eligibility (HTML mime types, English) matches count_cl_captures.py.
 
-  Stream A, uniform over URLs. Every eligible capture on the host is equally
-  likely. In practice that means the highest-fanout template wins almost
-  every draw: a legislature's bill-status page with four query parameters
-  holds tens of thousands of distinct URLs, while the statute text holds a
-  few thousand. Measured on the previous batch, 48 uniform draws off one
-  legislature host landed in three distinct path prefixes, 42 of them in one.
-  This stream is therefore kept small - it is here to supply hard negatives
-  (the site's own navigation, listings and admin pages), and a handful of
-  draws is enough to characterise a template. Anything more is near-duplicate
-  spend.
-
-  Stream B, uniform over path prefixes. Buckets a host's captures by the
-  first two lowercased path segments and gives every bucket one draw,
-  regardless of how many URLs it holds. That is what lets a low-fanout
-  section compete with a high-fanout one, and it is where primary legal text
-  actually lives. Prefixes already hit by Stream A are skipped so the two
-  streams do not spend twice on the same section.
-
-Neither stream encodes a belief about which paths contain law. Buckets come
-out of the crawl's own path structure and are drawn uniformly, so this runs
-identically on a publisher nobody has inspected. That is the line between
-this and the rule-based classifier that was dropped: that one encoded human
-guesses about which paths mean law, this one gives every section of a site an
-equal chance to be looked at.
-
-Sampling is by seeded hash rather than rand(), so a rerun reproduces the
-batch. Ordering by raw position instead would cluster by crawl segment and
-path prefix, reintroducing the template problem the two streams exist to fix.
-
-Eligibility matches count_host_captures.py exactly - same HTML family, same
-language filter - so what gets labeled matches the distribution the
-classifier is scored on.
-
-Output: one JSON object per line with "url" and "hint", the shape intake.py
-and the labeling prompt expect, plus provenance fields the labeling agent
-ignores. hint names the stream, never the publisher: naming it would tell the
-agent it is looking at a legislature, and the prompt spends less effort on
-cases it believes are obvious. The whole point of Stream A is the pages on a
-legal domain that are not law.
+Output: {"url", "hint"} per line, the shape intake.py and the labeling
+prompt expect. hint names the stream, not the publisher, so the agent can't
+tell it's looking at a known-legal domain.
 """
 import hashlib
 import json
@@ -70,7 +38,7 @@ BATCH_ID     = "host-sample-v1"
 # capture distribution: lowering it adds publishers that are almost all
 # uscourts.gov siblings, which collapse into a single registered domain and so
 # add labeling cost without adding a held-out group. See the threshold table
-# printed by count_host_captures.py.
+# printed by count_cl_captures.py.
 MIN_ELIGIBLE = 200
 
 K_A = 3    # uniform over URLs - hard negatives, kept small on purpose
@@ -86,7 +54,7 @@ EXISTING_BATCHES = [
     "data/candidates/targeted_batch.jsonl",
 ]
 
-# Both must match count_host_captures.py. xhtml is HTML - matching text/html
+# Both must match count_cl_captures.py. xhtml is HTML - matching text/html
 # alone drops whole statute publishers.
 HTML_MIMES = ("'text/html'", "'application/xhtml+xml'")
 SQL_FAMILY = r"regexp_replace(url_host_name, '^www\.', '')"

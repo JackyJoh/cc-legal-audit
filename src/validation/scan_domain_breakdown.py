@@ -11,13 +11,11 @@ from urllib.parse import urlparse
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
 
-LABELED_FILES = [
-    "data/processed/labeled_urls.jsonl",
-    "data/processed/targeted_labeled_urls.jsonl",
-]
+LABELED_FILES = ["data/processed/labeled_urls.jsonl"]
 CANDIDATES_FILES = [
     "data/candidates/candidates.jsonl",
     "data/candidates/targeted_batch.jsonl",
+    "data/candidates/host_sample_batch.jsonl",
 ]
 RAW_POOL_FILES = [
     "data/candidates/raw_pool.jsonl",

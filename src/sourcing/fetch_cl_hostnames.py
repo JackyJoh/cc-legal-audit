@@ -1,35 +1,22 @@
 """
-Build the legal-publisher hostname directory that the crawl-index steps
-sample from.
+Pulls court hostnames from the CourtListener courts API to build a list of
+domains that are near-certainly legal (each one is a court's own website),
+plus a hardcoded list of all 50 state legislature sites (CourtListener
+indexes case law only, so no legislature ever appears in it). Writes that
+host list for fetch_cl_urls.py to sample Common Crawl URLs from.
 
-CourtListener is used here as a *directory of court domains*, not as a source
-of URL strings. Pulling URLs straight from CL would shift the distribution the
-classifier sees at inference (CL's own storage paths and PDF-heavy record
-layout are largely absent from Common Crawl), and char 3-5 gram TF-IDF would
-happily learn 'courtlistener' and 'pdf' as legal-class features. So CL supplies
-domain coverage; Common Crawl supplies the actual URL strings.
+CourtListener supplies domain coverage only, never URL strings: pulling
+URLs directly from CL would shift the distribution the classifier sees at
+inference (CL's own storage paths and PDF-heavy layout barely appear in
+Common Crawl), and char n-gram TF-IDF would learn "courtlistener" itself as
+a legal-class feature.
 
-CL indexes case law, so no legislature appears in it. SEED_HOSTS below closes
-exactly that gap and nothing else - see the note there for why it stops at the
-state legislatures rather than growing into a curated list of legal
-publishers.
+The CL side samples a strided subset of pages by default (SAMPLE_PAGES),
+not the full court list, since the API's hourly request cap makes a full
+pull take hours; set SAMPLE_PAGES = None for a complete pull.
 
-The CL side is a strided page sample by default (SAMPLE_PAGES), not every
-court. The API's hourly request cap and its small maximum page size together
-make a full pull cost hours of waiting on quota. Hostnames also repeat heavily
-across courts - many courts share one state judiciary domain - so a spread
-sample recovers most of the distinct-host coverage for a fraction of it. The
-run prints the page plan and its request count before spending anything; set
-SAMPLE_PAGES = None for the complete pull.
-
-Output: data/candidates/court_hostnames.jsonl, one record per hostname:
-  {"host": ..., "registered_domain": ..., "sources": [...], "n_courts": N,
-   "jurisdictions": [...], "example_court": "..."}
-
-registered_domain is computed with tldextract, which uses the same Public
-Suffix List that Common Crawl's url_host_registered_domain column is built
-from - verified against domains already present in the labeled set
-(wa.gov, justice.gc.ca, virginia.gov).
+Output: data/candidates/court_hostnames.jsonl, one record per hostname
+(host, registered_domain, sources, n_courts, jurisdictions, example_court).
 """
 import json
 import os
@@ -48,55 +35,37 @@ CL_API      = "https://www.courtlistener.com/api/rest/v4/courts/"
 USER_AGENT  = "cc-legal-audit/research (University of Florida)"
 OUTPUT_FILE = "data/candidates/court_hostnames.jsonl"
 
-# CourtListener enforces two limits: a per-minute burst limit and, the one
-# that actually binds, a per-hour cap. MIN_INTERVAL satisfies the burst limit
-# but says nothing about the hourly one, so a long enough run walks into the
-# hourly wall and then sits in a very long retry-after. Keep the whole job
-# under HOURLY_BUDGET requests and the burst spacing is all the pacing needed.
+# CourtListener enforces two limits: a per-minute burst limit and a per-hour cap.
+#  MIN_INTERVAL satisfies the burst limit but says nothing about the hourly
+# one, so a long enough run walks into the hourly wall and then sits in a very
+# long retry-after. Keep the whole job under HOURLY_BUDGET requests and the 
+# burst spacing is all the pacing needed.
 MIN_INTERVAL   = 13.0
 HOURLY_BUDGET  = 50
 # above this, a 429 is the hourly wall rather than the burst limit
 MAX_RETRY_WAIT = 120.0
 
-# Every page fetched is written here immediately and reused on the next run.
-# Quota this scarce must not be spent twice on the same page, and an
-# interrupted run has to keep what it already paid for - both earlier runs
-# lost every page they fetched because results were only written at the end.
+# Written immediately per page so an interrupted run keeps what it already
+# paid for, given how scarce the hourly quota is.
 CACHE_FILE = "data/candidates/_cl_courts_cache.jsonl"
 
 # v4 caps page_size regardless of what is requested; this is the cap, not a
 # preference. It is what makes the full court list cost so many requests.
 PAGE_SIZE = 20
 
-# Number of pages to actually fetch. Set to None for a full pull.
-#
-# Pages are strided across the whole range, not taken off the front. The
-# endpoint is ordered by the court's `position` field, which is the judicial
-# hierarchy - SCOTUS, then circuits, then district courts, then state systems.
-# So a prefix is not a sample of US courts, it is the federal judiciary with
-# the state courts cut off. Striding costs the same number of requests and
-# covers the whole hierarchy.
-#
-# Doubling this reuses every page already cached rather than re-spending on
-# them, because the strided plan for 2N contains the plan for N - the new
-# pages interleave between the old ones, so coverage stays even across the
-# hierarchy and only the additions cost quota.
+# Pages are strided, not taken off the front; the endpoint is ordered by
+# judicial hierarchy (SCOTUS -> circuits -> districts -> state systems), so a
+# prefix would be the federal judiciary with states cut off, not a sample.
+# Doubling this value reuses every cached page, since the strided plan for
+# 2N contains the plan for N. Set to None for a full pull.
 SAMPLE_PAGES = 28
 
-# The one gap CourtListener structurally cannot fill: it indexes case law, so
-# no legislature ever appears in it.
-#
-# This is a complete enumeration of a closed population - there are exactly 50
-# US states and each has one official legislature site - which is why it is
-# defensible where an open-ended curated list would not be. It can be stated
-# in the methods section in one sentence and has no recall gap by
-# construction: nothing was selected, the population was enumerated.
-#
-# Deliberately NOT extended to federal statute sites or non-US sources. Those
-# have no closure rule, so any such list encodes which publishers the author
-# happened to think of, and an omission in it is invisible and unauditable.
-# That is the same objection that got the rule-based whitelist classifier
-# dropped, and it applies to a sampling frame as much as to a classifier.
+# Closed enumeration: all 50 US states have exactly one official legislature
+# site, not a curated list, so there's no recall gap by construction.
+# Purposely choose to not extend this list to statute sites or other
+# non-US legal domains/sources beacuse they have no 'limit' or way to create
+# an exhaustive list. Therefore a list beyond these is simlply what I have thought
+# of, and not a reproduceable list.
 SEED_HOSTS = {
     "seed:us-legislature": [
         "legislature.state.al.us", "www.akleg.gov", "www.azleg.gov",
@@ -151,8 +120,8 @@ def get_json(url, token):
                 raise SystemExit(
                     f"\nHourly quota exhausted ({HOURLY_BUDGET}/hour). "
                     f"Quota returns in ~{mins:.0f} min.\n"
-                    f"Pages fetched so far are cached in {CACHE_FILE} - "
-                    f"re-run then and it resumes without re-spending them."
+                    f"Pages fetched so far are cached in {CACHE_FILE}. "
+                    f"Re-run then and it resumes without re-spending them."
                 )
             print(f"  throttled, waiting {wait:.0f}s")
             time.sleep(wait)
