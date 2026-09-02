@@ -61,18 +61,6 @@ already settle it. Reserve careful, closer reading for pages that are
 plausibly legal (most `prefilter_wl`/`prefilter_kw` hints, and any
 `raw_random` page whose content isn't instantly and obviously off-topic).
 
-**Watch for repeated URL patterns within the batch.** Some sources appear
-many times with only a query param, date stamp, or section number
-differing (e.g. a legislature's committee-document listing across many
-dates, or a definitions page with different `term_occur` values pointing at
-structurally identical content). If you've already fetched and understood
-the *template* of such a page — same domain, same path shape, same
-boilerplate — later instances still need their own fetch (labels stay
-per-URL and you must still read the specific text present, since sections
-or dates can change the actual content), but you can skim rather than
-re-analyze from scratch, and keep the rationale short by referencing what's
-consistent. Never extend a pattern's label to a URL you did not fetch.
-
 **Keep WebFetch prompts and outputs minimal.** When you invoke a fetch tool
 that itself summarizes content via a model, ask it for a short, targeted
 extraction (page type, presence of statute/bill/opinion text, first
@@ -153,6 +141,20 @@ classifier is not ground truth — that's the whole reason you're doing this.
    moving to the next URL. Do not hold results in memory and write them at
    the end — if this run gets interrupted, whatever's already on disk is
    what survives.
+
+**Label every URL independently.** Some sources appear many times with only
+a query param, date stamp, or section number differing. Every one of those
+is its own separate decision, made only from the content you fetched for
+that specific URL. Don't carry a judgment over from a URL that looked
+similar, don't write a rationale that appeals to a "pattern", a "template",
+or sibling pages you checked earlier, and don't let a run of
+identical-looking labels make the next one automatic. Two URLs of the same
+shape can genuinely differ, and a shape you have labeled fifty times may
+still be wrong on all fifty. Repeating one misreading across a whole URL
+family is the most damaging error possible here — far worse than getting a
+single page wrong — because the classifier ends up learning the shape
+instead of the page, and a large block of confidently wrong labels is very
+hard to spot afterwards.
 
 If a page fails to load (blocked, 404, timeout), do not guess. This means
 both: don't infer the label from the URL string alone, and don't fall back

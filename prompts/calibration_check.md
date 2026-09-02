@@ -25,12 +25,20 @@ else, resolve these paths against that root instead of guessing.
 **LEGAL** = the URL is from a source whose primary function is producing or
 publishing formal legal documents (court systems, legislative bodies,
 regulatory agencies, statute repositories, established legal publishers)
-**AND** the specific page is, or directly links to, a filing, statute, bill,
-regulation, or court opinion.
+**AND** the specific page's own HTML contains the actual text of a filing,
+statute, bill, regulation, or court opinion — not a page that merely links
+out to that text.
+
+Common Crawl only captures a page's own HTML, never the content behind its
+links. A landing/index page that links to a PDF or a separate full-text
+page has no legal text on the page itself, so it is NON_LEGAL even if it
+sits one click away from the real document and even if the linked document
+would itself be LEGAL.
 
 **NON_LEGAL** (excluded even if legal-adjacent) = legal commentary, law firm
-marketing pages, legal news, and homepage/search/index/menu pages of legal
-databases, even on an otherwise-qualifying domain.
+marketing pages, legal news, homepage/search/index/menu pages of legal
+databases, and landing/index pages that merely link to the actual document
+text elsewhere — even on an otherwise-qualifying domain.
 
 ## What to do
 

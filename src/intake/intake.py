@@ -4,11 +4,12 @@ with which sourcing pass produced it:
 
   original  the original 2990-URL candidate batch (rule-based prefilter
             hits + raw random URLs + synthetic homepage negatives), scoped
-            to data/candidates/candidates.jsonl. The only batch with
-            manual corrections applied (see below).
+            to data/candidates/candidates.jsonl. Carries all three
+            corrections (see below).
   target    the error-driven +500 batch that targeted the false-negative
             domains and URL-shape gaps found after training on the
             original batch, scoped to data/candidates/targeted_batch.jsonl.
+            Carries the definition-popup correction (see below).
   cl        the CourtListener-derived host sample (fetch_cl_hostnames.py's
             court + legislature domains, sampled via fetch_cl_urls.py),
             scoped to data/candidates/host_sample_batch.jsonl.
@@ -19,16 +20,18 @@ duplicate label for the same URL is deduped, a conflicting duplicate label
 is logged instead of silently picked, and a label beats a skip for the same
 URL. The three results are then concatenated into one file.
 
-Corrections (original batch only). The labeling prompt originally allowed a page
-that "directly links to" a filing to count as legal, but Common Crawl only
-captures a page's own HTML, not what it links to, so a landing page with no
-document text on the page itself is a false positive. LINK_ONLY_CORRECTIONS
-(18 URLs) is that failure, hand-confirmed by rationale text. A second
-worker applied one templated rationale across a whole Justice Laws Canada
-URL family without checking each page; INDEX_PAGE_CORRECTIONS (16 URLs) is
-that failure, confirmed by fetching 5 of them directly. Both are corrected
-to non_legal here rather than discarded, since they're useful hard
-negatives: right domain, wrong page type.
+Corrections. The labeling prompt originally allowed a page that "directly
+links to" a filing to count as legal, but Common Crawl only captures a
+page's own HTML, not what it links to, so a landing page with no document
+text on the page itself is a false positive. LINK_ONLY_CORRECTIONS
+(18 URLs, original batch) is that failure, hand-confirmed by rationale
+text. A second worker applied one templated rationale across a whole
+Justice Laws Canada URL family without checking each page;
+INDEX_PAGE_CORRECTIONS (16 URLs, original batch) is that failure, confirmed
+by fetching 5 of them directly. is_definition_popup (311 rows, original and
+targeted batches) is the third, described at its definition below. All
+three are corrected to non_legal here rather than discarded, since they're
+useful hard negatives: right domain, right vocabulary, wrong page type.
 
 Output: data/processed/labeled_urls.jsonl, one clean {"url", "label",
 "confidence", "rationale", "run_id", "labeled_at", "source"} object per
@@ -81,8 +84,53 @@ INDEX_PAGE_CORRECTIONS = {
     "https://www.laws.justice.gc.ca/eng/acts/G-11.8/?wbdisable=true",
 }
 
+# Cornell LII's inline definition popup: an iframe modal (note the fixed
+# width/height/iframe query params on every one) showing a single defined
+# term in ~45-65 words, above a "Source" line that links out to the actual
+# CFR section on a different page. Non_legal on three separate counts under
+# the definition in prompts/legal_url_labeling_task.md - it is a fragment
+# rather than a document's text, its own HTML links to the real text
+# instead of containing it (the same failure LINK_ONLY_CORRECTIONS covers),
+# and it is UI chrome rather than a publication. Confirmed by fetching two
+# of them directly. At that length they also fall below the Gopher quality
+# filter the pipeline applies before classification, so the classifier
+# would be learning to chase pages that never reach it.
+#
+# A predicate rather than a URL set: 311 rows across two batches match, and
+# any future batch sampling law.cornell.edu will pull more.
+#
+# This family was labeled both ways, and the split fell along batch lines
+# rather than page content: the original batch called it non_legal 87 to
+# 44, then every one of the targeted batch's 149 cornell.edu URLs was this
+# same popup and every one was labeled legal. The false-negative analysis
+# that sourced that batch had read the original batch's non_legal labels as
+# a cornell.edu "URL-shape gap" and gone looking for more of the shape, so
+# the targeted pass was amplifying a labeling disagreement rather than
+# fixing a model error. Re-run that analysis now this is settled.
+#
+# Covers both variants of the widget, which are the only two URL shapes
+# under /definitions/ in any batch: index.php (the CFR popup, 280 rows) and
+# uscode.php (the US Code popup, 31 rows). uscode.php was checked
+# separately by fetching one row from each side of its label split - 29 USC
+# 1002(34) "individual account plan" (labeled legal) and 49 USC 1136(h)(3)
+# "passenger list" (labeled non_legal) - and they are the same page down to
+# the layout: one defined term, 50-65 words, a "Source" line hyperlinking
+# to the full section elsewhere. Its split is worse than index.php's, too,
+# falling inside individual workers rather than between batches (w2 3-3,
+# w5 2-2, w6 2-2, w4 1-6), so one agent in one session called the same
+# widget both ways.
+def is_definition_popup(url):
+    return "law.cornell.edu/definitions/" in url
+
+
+DEFINITION_POPUP_NOTE = (
+    "[corrected: inline definition-popup widget - one defined term, links "
+    "out to the actual section text rather than containing it]"
+)
+
 # name, candidate file, run-file globs, skipped-file globs, corrections
-# (each correction is a (url_set, note) pair applied only within this batch)
+# (each correction is a (url_set_or_predicate, note) pair applied only
+# within this batch; a predicate is tested against every labeled URL)
 BATCHES = [
     {
         "source": "original",
@@ -94,6 +142,7 @@ BATCHES = [
              "[corrected: page itself has no legal text, only links to one]"),
             (INDEX_PAGE_CORRECTIONS,
              "[corrected: landing/index page, no regulatory text present on page itself]"),
+            (is_definition_popup, DEFINITION_POPUP_NOTE),
         ],
     },
     {
@@ -101,7 +150,9 @@ BATCHES = [
         "candidates_file": "data/candidates/targeted_batch.jsonl",
         "run_globs": ["run_2026-08-27-targeted-w*.jsonl"],
         "skipped_globs": ["skipped_2026-08-27-targeted-w*.jsonl"],
-        "corrections": [],
+        "corrections": [
+            (is_definition_popup, DEFINITION_POPUP_NOTE),
+        ],
     },
     {
         "source": "cl",
@@ -167,7 +218,9 @@ def merge_batch(batch):
     skipped_only = skipped_urls - set(labeled_by_url)
 
     correction_counts = []
-    for correction_urls, note in batch["corrections"]:
+    for match, note in batch["corrections"]:
+        correction_urls = ([u for u in labeled_by_url if match(u)]
+                           if callable(match) else match)
         n = 0
         for url in correction_urls:
             row = labeled_by_url.get(url)
