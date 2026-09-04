@@ -2,3 +2,8 @@ boto3
 python-dotenv
 scikit-learn
 tldextract
+requests
+warcio
+# pinned: 1.x and 2.x extract different text from the same HTML, and every
+# labeled_text.jsonl row records which version produced it
+trafilatura==2.2.0

@@ -18,6 +18,8 @@ Standard LLM pre-training pipelines apply a uniform Jaccard similarity threshold
 
 ### URL Classifier
 
+Superseded by the text classifier below as of 2026-09-03. The numbers in this section are the URL model's own record and predate both the definition-popup label correction and the move to page text, so they no longer describe the current pipeline. A fuller account of why this approach was dropped goes here later.
+
 #### Rule-based approach (archived)
 
 Curated domain whitelist + a conservative hostname-keyword fallback (details in `archive/rule-based/`), validated at 88.4% recall against CourtListener bulk data after one round of gap-filling.
@@ -73,12 +75,65 @@ Dropping to ~0.70 for domains outside the top 3 recovers some recall on the *thi
 
 **How the CourtListener host-sample batch was sourced.** Aimed squarely at the domain-generalization gap above: `fetch_cl_hostnames.py` builds a directory of court and legislature hostnames (CourtListener API + a closed enumeration of all 50 state legislature sites), `count_cl_captures.py` ranks them by actual Common Crawl depth, and `fetch_cl_urls.py` draws a per-publisher sample from Common Crawl itself (never from CourtListener's own URLs, to avoid a distribution shift). It added breadth, 777 labels across many publishers seen shallowly, but per the leave-one-domain-out results above, it did not fix the underlying generalization gap.
 
+### Text classifier (bag of words on page text)
+
+Status: initial result, recorded 2026-09-03. To be expanded later with a fuller write-up of why the URL-only approach was dropped.
+
+Same 4044 labels, same evaluation script, same splits. The only thing that changes is what the model reads: the extracted page text from each URL's Common Crawl capture, instead of the URL string.
+
+**Why.** The URL classifier could not recognize a legal publisher it had no training examples from. Leave-one-domain-out recall was 0.000 at every usable threshold. Page text has cross-publisher signal that URL strings do not: statutory prose from Kansas reads like statutory prose from Florida, while `ksrevisor.gov` and `flsenate.gov` share nothing as strings.
+
+**Pipeline.**
+
+1. `src/text/fetch_warc_text.py` joins the labeled URLs to the Common Crawl index through Athena to get each capture's WARC filename, byte offset and length, then range-fetches those bytes over HTTP and extracts text with trafilatura. 3996 of 4044 labeled URLs (98.8%) are present in CC-MAIN-2026-12, and 3787 (93.6%) produced usable text: 902 legal / 2885 non_legal. Per-publisher coverage is 92 to 100%, so no domain is too depleted to hold out fairly.
+2. `src/classifier/features.py` holds both feature recipes in one place so training and evaluation cannot drift onto different settings. `url` is the existing char 3-5 gram vectorizer, unchanged. `text` is word unigrams and bigrams over the page body.
+3. `eval_grouped.py --features url|text` runs identical splits and metrics against either, which is what makes the two comparable.
+
+**Extraction settings** are load-bearing, so trafilatura is pinned at 2.2.0 and the version is recorded on every output row:
+
+- `deduplicate=False`, set explicitly. The option strips repeated segments. An extractor that quietly dedupes its own input would confound the fuzzy dedup study this corpus exists to support.
+- `include_tables=True`. Statutes and regulations are frequently laid out in tables.
+- `favor_recall=True`. Dropping subsection (b)(2) is a worse error here than keeping an extra paragraph.
+
+`data/processed/warc_pointers.jsonl` is committed and regenerates the text with no further Athena spend. The extracted text itself (about 25MB) is gitignored.
+
+**Domain purity filter.** Any n-gram appearing in fewer than 3 distinct registered domains is dropped, counted on the training fold only so a held-out publisher can never influence the feature set. This removes site template text without a hand-written stoplist. Justice Canada page furniture (`marginal note`, `details date`, `date modified`, `page details`) sits at 1 to 2 domains, while real legal vocabulary starts at 17 (`general assembly`) and runs to 79 (`section`). k=3 is the smallest value that clears the template band, chosen from that gap rather than from a score: k of 1, 2, 3 and 5 all give leave-one-domain-out F1 between 0.794 and 0.801, so the choice is not performance-driven.
+
+**Results, held-out test split** (80/20 random, seed 42; 758 rows, 181 legal / 577 non_legal):
+
+| threshold | precision | recall | F1 |
+|---|---|---|---|
+| 0.50 | 0.771 | 0.912 | 0.835 |
+| 0.60 (best F1) | 0.908 | 0.873 | 0.890 |
+| 0.65 | 0.932 | 0.834 | 0.880 |
+| 0.85 | 0.966 | 0.475 | 0.637 |
+
+**Results, leave-one-domain-out** (macro over 16 held-out publishers), with the URL model's recall alongside for comparison:
+
+| threshold | text precision | text recall | text F1 | URL recall |
+|---|---|---|---|---|
+| 0.50 | 0.901 | 0.825 | 0.846 | 0.204 |
+| 0.60 | 0.923 | 0.739 | 0.801 | 0.072 |
+| 0.65 | 0.932 | 0.696 | 0.779 | 0.011 |
+| 0.85 | 0.987 | 0.421 | 0.556 | 0.000 |
+
+Reading page text raises recall on publishers the model has never seen from effectively zero to 0.825 at t=0.50, holding 0.901 precision. The conclusion recorded above for the URL classifier, that it recognizes legal publishers rather than legal text, was correct for that model and does not hold for this one.
+
+Leave-one-domain-out precision is also nearly flat from 0.50 to 0.85 (0.901 to 0.987) while recall more than halves. The precision-over-recall reasoning behind the URL model's 0.85 operating point does not carry over: the useful range here is 0.50 to 0.60.
+
+**Known limits.**
+
+- `cornell.edu` is the one weak publisher, at 0.494 precision (t=0.60) against 0.64 to 1.00 everywhere else. Leave-one-domain-out scores only the held-out publisher's own rows, so every false positive there is a Cornell non-legal page, and Cornell is the only publisher with a large body of labeled hard negatives (the definition popups). A 50-word popup and a 60-word statute section look alike in bag of words.
+- The domain purity filter works on phrases but leaks on single words. `marginal`, `modified` and `note` survive because they appear incidentally on a few unrelated sites, while most of their weight still comes from one publisher. The fix is to filter on domain *concentration*, the share of a feature's occurrences coming from its top domain, rather than domain count.
+- The positive class is still roughly 80% statutes and regulations. Court opinions and bills are barely represented, so the corpus stays register-narrow even though the model now generalizes across publishers.
+
 ## Code
 
 ```
 src/
   sourcing/    pull URLs from Common Crawl, build labeling batches
   intake/      merge raw labeling-agent output into clean label files
+  text/        fetch page text from Common Crawl for the labeled URLs
   classifier/  train + evaluate the TF-IDF/LR model
   validation/  deployment-distribution precision sampling
 ```
@@ -96,10 +151,14 @@ src/
 **`src/intake/`**
 - `intake.py`: Merges all three labeling passes' raw per-worker output into one file, `data/processed/labeled_urls.jsonl`, tagging each row with a `source` field (`original` / `target` / `cl`). Applies the two documented label corrections (link-only pages, index/landing pages) to the original pass only.
 
+**`src/text/`**
+- `fetch_warc_text.py`: Resolves each labeled URL to its Common Crawl capture (Athena, cached to `data/processed/warc_pointers.jsonl`), range-fetches the WARC record over HTTP, and extracts text with trafilatura. Writes `data/processed/labeled_text.jsonl`. Every input URL gets an output row, carrying a `skip_reason` when extraction failed, so counts always reconcile against the label file.
+
 **`src/classifier/`**
+- `features.py`: The two feature recipes, `url` (char 3-5 grams on the URL string) and `text` (word 1-2 grams on the page body), plus the domain purity filter. Kept in one file so training and evaluation cannot drift onto different settings.
 - `train_classifier.py`: Trains the char n-gram TF-IDF + logistic regression classifier on the merged label file, reports held-out metrics and a threshold sweep.
 - `threshold_sweep_full.py`: Full precision/recall/F1 sweep across thresholds, written to `data/processed/threshold_sweep_results.csv` for the record.
-- `eval_grouped.py`: Diagnostic, not the shipped metrics — compares a random row split against a grouped (whole-domain-held-out) split and a leave-one-domain-out sweep, plus a coefficient audit, to check whether the classifier generalizes to unseen legal publishers or just recognizes known ones.
+- `eval_grouped.py`: Diagnostic, not the shipped metrics. Takes `--features url|text` so both models are scored by identical code — compares a random row split against a grouped (whole-domain-held-out) split and a leave-one-domain-out sweep, plus a coefficient audit, to check whether the classifier generalizes to unseen legal publishers or just recognizes known ones.
 
 **`src/validation/`**
 - `sample_deployment_validation.py` / `sample_deployment_validation_2.py`: Score the full (unlabeled) raw pool with the trained model, draw a genuinely random sample of the URLs that clear the operating threshold for hand-labeling — the deployment-distribution precision check.

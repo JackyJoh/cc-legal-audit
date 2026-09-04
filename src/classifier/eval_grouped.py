@@ -31,18 +31,19 @@ would leak the other.
 
 Read this as a diagnostic, not as the shipped model's metrics.
 """
+import argparse
 import json
 import os
 from collections import Counter
 from urllib.parse import urlparse
 
 import tldextract
-from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import precision_score, recall_score, f1_score
 
-LABELED_FILES = ["data/processed/labeled_urls.jsonl"]
+from features import MODES, url_features
+
 SEED = 42
 OPERATING_THRESHOLD = 0.85
 THRESHOLDS = [0.5, 0.65, 0.75, 0.85, 0.9]
@@ -57,29 +58,51 @@ def domain_of(url):
     return _extract(urlparse(url).netloc or url).top_domain_under_public_suffix
 
 
-def load_labeled(paths):
-    by_url = {}
-    used = []
-    for path in paths:
-        if not os.path.exists(path):
-            print(f"  (skipping absent {path})")
-            continue
-        used.append(path)
-        with open(path, encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if line:
-                    obj = json.loads(line)
-                    by_url.setdefault(obj["url"], obj["label"])
+# set once by main() from --features; every fit in the run uses the same one
+_MAKE_VEC = url_features
+
+
+def load_labeled(mode):
+    """Load one mode's rows as parallel lists.
+
+    urls is kept alongside docs because the two diverge in text mode: the
+    model sees the page body, but domain grouping and the coefficient audit
+    still need to know which publisher a row came from. Rows whose extraction
+    failed carry a null text and are dropped here rather than silently
+    vectorising as empty strings.
+    """
+    _, path, field = MODES[mode]
+    if not os.path.exists(path):
+        raise SystemExit(f"missing {path} - run src/text/fetch_warc_text.py first")
+
+    by_url, dropped = {}, 0
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            obj = json.loads(line)
+            doc = obj.get(field)
+            if not doc:
+                dropped += 1
+                continue
+            by_url.setdefault(obj["url"], (doc, obj["label"]))
+
     urls = list(by_url)
-    labels = [by_url[u] for u in urls]
+    docs = [by_url[u][0] for u in urls]
+    labels = [by_url[u][1] for u in urls]
     domains = [domain_of(u) for u in urls]
-    return urls, labels, domains, used
+    if dropped:
+        print(f"  dropped {dropped} rows with no {field}")
+    return urls, docs, labels, domains, path
 
 
-def fit(X_train, y_train):
-    vec = TfidfVectorizer(analyzer="char", ngram_range=(3, 5), min_df=2)
-    Xv = vec.fit_transform(X_train)
+def fit(X_train, y_train, domains_train=None):
+    """domains_train is the training fold's domains, used by the domain-purity
+    filter. It must never include a held-out publisher's rows: that would let
+    the thing being tested for choose the feature set."""
+    vec = _MAKE_VEC()
+    Xv = vec.fit_transform(X_train, domains_train)
     clf = LogisticRegression(class_weight="balanced", max_iter=2000)
     clf.fit(Xv, y_train)
     return vec, clf
@@ -126,17 +149,18 @@ def report_concentration(labels, domains):
     return legal
 
 
-def random_split_eval(urls, labels):
-    X_tr, X_te, y_tr, y_te = train_test_split(
-        urls, labels, test_size=0.2, random_state=SEED, stratify=labels)
-    vec, clf = fit(X_tr, y_tr)
+def random_split_eval(docs, labels, domains):
+    X_tr, X_te, y_tr, y_te, d_tr, _ = train_test_split(
+        docs, labels, domains, test_size=0.2, random_state=SEED,
+        stratify=labels)
+    vec, clf = fit(X_tr, y_tr, d_tr)
     probs = legal_probs(vec, clf, X_te)
     y_bin = [1 if y == "legal" else 0 for y in y_te]
     print(f"\ntest rows: {len(X_te)} ({sum(y_bin)} legal / {len(y_bin) - sum(y_bin)} non_legal)")
     return sweep(y_bin, probs)
 
 
-def grouped_split_eval(urls, labels, domains, holdout_frac=0.25):
+def grouped_split_eval(docs, labels, domains):
     """Hold whole registered domains out. Domains are picked so the held-out
     side carries a usable number of legal examples - a random domain draw can
     easily reserve only tail domains and leave nothing to measure recall on."""
@@ -151,14 +175,15 @@ def grouped_split_eval(urls, labels, domains, holdout_frac=0.25):
 
     tr = [i for i, d in enumerate(domains) if d not in held]
     te = [i for i, d in enumerate(domains) if d in held]
-    X_tr = [urls[i] for i in tr]; y_tr = [labels[i] for i in tr]
-    X_te = [urls[i] for i in te]; y_te = [labels[i] for i in te]
+    X_tr = [docs[i] for i in tr]; y_tr = [labels[i] for i in tr]
+    X_te = [docs[i] for i in te]; y_te = [labels[i] for i in te]
+    d_tr = [domains[i] for i in tr]
 
     if len(set(y_tr)) < 2 or "legal" not in y_te:
         print("\n(grouped split degenerate - one side lost a whole class)")
         return None
 
-    vec, clf = fit(X_tr, y_tr)
+    vec, clf = fit(X_tr, y_tr, d_tr)
     probs = legal_probs(vec, clf, X_te)
     y_bin = [1 if y == "legal" else 0 for y in y_te]
     print(f"\nheld-out domains ({len(held)}): {', '.join(sorted(held))}")
@@ -166,7 +191,7 @@ def grouped_split_eval(urls, labels, domains, holdout_frac=0.25):
     return sweep(y_bin, probs)
 
 
-def lodo_eval(urls, labels, domains, legal_counts):
+def lodo_eval(docs, labels, domains, legal_counts):
     """Retrain without each legal-bearing domain, score only that domain."""
     targets = [d for d, n in legal_counts.items() if n >= MIN_LEGAL_FOR_LODO]
     targets.sort(key=lambda d: -legal_counts[d])
@@ -180,8 +205,9 @@ def lodo_eval(urls, labels, domains, legal_counts):
         y_tr = [labels[i] for i in tr]
         if len(set(y_tr)) < 2:
             continue
-        vec, clf = fit([urls[i] for i in tr], y_tr)
-        probs = legal_probs(vec, clf, [urls[i] for i in te])
+        vec, clf = fit([docs[i] for i in tr], y_tr,
+                       [domains[i] for i in tr])
+        probs = legal_probs(vec, clf, [docs[i] for i in te])
         y_bin = [1 if labels[i] == "legal" else 0 for i in te]
         preds = [1 if p >= OPERATING_THRESHOLD else 0 for p in probs]
         r = recall_score(y_bin, preds, zero_division=0)
@@ -195,11 +221,13 @@ def lodo_eval(urls, labels, domains, legal_counts):
     return results
 
 
-def coefficient_audit(urls, labels, domains):
+def coefficient_audit(docs, labels, urls):
     """Top positive features, flagged when they are substrings of a training
     hostname. A top-weighted feature like 'nell.' is the model naming a
-    publisher, not learning what a legal URL looks like."""
-    vec, clf = fit(urls, labels)
+    publisher, not learning what a legal URL looks like. The same check reads
+    just as well in text mode: 'cornell' or 'vermont' surfacing as a top word
+    feature is publisher chrome leaking in through the page body instead."""
+    vec, clf = fit(docs, labels, [domain_of(u) for u in urls])
     names = vec.get_feature_names_out()
     idx = list(clf.classes_).index("legal")
     coefs = clf.coef_[0] if clf.coef_.shape[0] == 1 else clf.coef_[idx]
@@ -229,9 +257,18 @@ def coefficient_audit(urls, labels, domains):
 
 
 def main():
-    print("--- loading ---")
-    urls, labels, domains, used = load_labeled(LABELED_FILES)
-    print(f"{len(urls)} labeled URLs from {len(used)} file(s) "
+    global _MAKE_VEC
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--features", choices=sorted(MODES), default="url",
+                    help="what the model looks at: the URL string, or the "
+                         "extracted page text. Everything else is identical, "
+                         "so the two runs are directly comparable.")
+    args = ap.parse_args()
+    _MAKE_VEC = MODES[args.features][0]
+
+    print(f"--- loading (features: {args.features}) ---")
+    urls, docs, labels, domains, path = load_labeled(args.features)
+    print(f"{len(urls)} labeled rows from {path} "
           f"({labels.count('legal')} legal, {labels.count('non_legal')} non_legal)")
 
     legal_counts = report_concentration(labels, domains)
@@ -239,13 +276,13 @@ def main():
     print("\n" + "=" * 68)
     print("1. RANDOM ROW SPLIT (what train_classifier.py reports)")
     print("=" * 68)
-    random_rows = random_split_eval(urls, labels)
+    random_rows = random_split_eval(docs, labels, domains)
     print_sweep("random-split sweep", random_rows)
 
     print("\n" + "=" * 68)
     print("2. GROUPED SPLIT (whole registered domains held out)")
     print("=" * 68)
-    grouped_rows = grouped_split_eval(urls, labels, domains)
+    grouped_rows = grouped_split_eval(docs, labels, domains)
     if grouped_rows:
         print_sweep("grouped-split sweep", grouped_rows)
 
@@ -260,12 +297,12 @@ def main():
     print("\n" + "=" * 68)
     print("3. LEAVE-ONE-DOMAIN-OUT")
     print("=" * 68)
-    lodo_eval(urls, labels, domains, legal_counts)
+    lodo_eval(docs, labels, domains, legal_counts)
 
     print("\n" + "=" * 68)
     print("4. COEFFICIENT AUDIT (fit on all data)")
     print("=" * 68)
-    coefficient_audit(urls, labels, domains)
+    coefficient_audit(docs, labels, urls)
 
 
 if __name__ == "__main__":
