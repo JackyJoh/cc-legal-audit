@@ -1,36 +1,47 @@
 """
-Pulls the Common Crawl page text for every URL in labeled_urls.jsonl, so the
-same labels can train a content classifier instead of a URL-string one.
+Fetches the Common Crawl page text for a list of URLs.
 
-Two stages, so the Athena spend happens once:
+Usage:
+  python src/corpus/fetch_warc_text.py                     # the labeled set
+  python src/corpus/fetch_warc_text.py --input X --output Y
 
-  1. warc_pointers.jsonl  where each labeled URL sits in the crawl archives
-     (filename, byte offset, length, plus fetch_status and mime). The URL
-     list renders to ~349KB of SQL literal against Athena's 262KB query cap,
-     so it goes out in chunks - each chunk is its own partition scan at
-     roughly $0.50, which is why the result is cached to disk.
-  2. labeled_text.jsonl   the extracted text, fetched by HTTP range request
-     against data.commoncrawl.org: no AWS credentials, no S3 egress charge.
+Written for the labeled URLs, but any jsonl with a "url" field works, which
+is what lets the deployment sample and the label set go through identical
+extraction. That matters more than it sounds: the model learns from whatever
+the extractor produces, so text prepared a different way is a different
+input, and comparisons across it mean nothing.
 
-Extraction is trafilatura with deduplicate switched off explicitly. It
-already defaults off in 2.2.0, but the option strips repeated segments, and
-an extractor that quietly dedupes its own input would confound the fuzzy-dedup
-study this corpus exists to support. include_tables and favor_recall are on
-for a related reason: statutes and regulations live in tables and nested
-lists, and dropping subsection (b)(2) is not the same class of error as
-dropping a paragraph from a blog post.
+How it works, in two stages so the Athena spend happens once:
 
-Every input URL gets an output row. Failures carry a skip_reason and a null
-text rather than vanishing, so the row count always reconciles against
-labeled_urls.jsonl, and both html_bytes and text_chars are recorded so pages
-where extraction ate 99% of the content are visible afterwards. Both stages
-resume by skipping URLs already written.
+  1. Locate. Ask the Common Crawl index where each URL's capture lives:
+     which archive file, which byte offset, how many bytes. The URL list is
+     too long for a single query (Athena caps a query string at 262KB), so it
+     goes out in chunks, each one a separate partition scan costing about
+     $0.14. The answers are cached to a pointers file, so this stage runs
+     once per URL list and never again. An input that already carries pointer
+     columns skips the stage entirely.
+  2. Fetch and extract. Range-request exactly those bytes from
+     data.commoncrawl.org over plain HTTP, so no AWS credentials and no S3
+     egress charge, then run trafilatura over the HTML.
 
-Output: data/processed/labeled_text.jsonl. That file runs to ~100MB and is
-gitignored; warc_pointers.jsonl is the small reproducibility record and is
-meant to be committed, since it regenerates the text without touching Athena
-again.
+Extraction settings are load-bearing and pinned. deduplicate is set off
+explicitly: the option drops repeated segments, and an extractor that quietly
+dedupes its own input would confound the fuzzy-dedup study this corpus feeds.
+include_tables and favor_recall are on because statutes live in tables and
+nested lists, where losing subsection (b)(2) is a worse error than keeping an
+extra paragraph.
+
+Every input URL gets an output row. Failures keep the row and carry a
+skip_reason with a null text instead of disappearing, so counts always
+reconcile against the input, and html_bytes and text_chars are both recorded
+so pages where extraction ate the content stay visible. Re-running resumes:
+rows that failed for a transient reason (throttling, timeouts) are retried,
+rows that are settled (not in the crawl, extracted to nothing) are not.
+
+The text output is large and gitignored. The pointers file is small, is meant
+to be committed, and regenerates the text with no further Athena spend.
 """
+import argparse
 import io
 import json
 import os
@@ -45,15 +56,19 @@ import trafilatura
 from dotenv import load_dotenv
 from warcio.archiveiterator import ArchiveIterator
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "sourcing"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "samples"))
 from athena import client, run_query, sql_in_list  # noqa: E402
 
 load_dotenv()
 
 SNAPSHOT = "CC-MAIN-2026-12"
-LABELED_FILE = "data/processed/labeled_urls.jsonl"
-POINTERS_FILE = "data/processed/warc_pointers.jsonl"
-OUTPUT_FILE = "data/processed/labeled_text.jsonl"
+DEFAULT_INPUT = "data/processed/labeled_urls.jsonl"
+DEFAULT_POINTERS = "data/processed/warc_pointers.jsonl"
+DEFAULT_OUTPUT = "data/processed/labeled_text.jsonl"
+
+# columns that make an input row self-locating: if all three are present the
+# index lookup is already done and stage 1 is skipped
+POINTER_COLS = ("warc_filename", "warc_record_offset", "warc_record_length")
 
 # Athena caps a query string at 262,144 chars; stay well under it so the
 # chunker never has to reason about the exact overhead of the SQL around
@@ -184,11 +199,16 @@ def fetch_record(pointer):
 
 
 def build_row(item):
-    """Turn one labeled URL into an output row, success or not."""
+    """Turn one input URL into an output row, success or not.
+
+    label and source pass through when the input has them and are null when
+    it does not, so an unlabeled crawl sample produces the same row shape as
+    the label set and can be scored by the same code.
+    """
     label_row, pointer = item
     base = {
         "url": label_row["url"],
-        "label": label_row["label"],
+        "label": label_row.get("label"),
         "source": label_row.get("source"),
         "extractor": EXTRACTOR,
         "text": None,
@@ -226,21 +246,49 @@ def build_row(item):
     return base
 
 
-def main():
-    labeled = load_jsonl(LABELED_FILE)
-    print(f"--- {len(labeled)} labeled URLs from {LABELED_FILE} ---")
+def resolve_pointers(rows, pointers_file):
+    """Stage 1: get each URL's location in the crawl archives.
 
-    print("\n1. WARC pointers")
-    if os.path.exists(POINTERS_FILE):
-        pointers = {r["url"]: r for r in load_jsonl(POINTERS_FILE)}
-        print(f"  reusing {POINTERS_FILE} ({len(pointers)} rows) - delete it to re-query")
-    else:
-        pointers = fetch_pointers([r["url"] for r in labeled])
-        os.makedirs(os.path.dirname(POINTERS_FILE), exist_ok=True)
-        with open(POINTERS_FILE, "w", encoding="utf-8") as f:
+    Three ways to get there, cheapest first: the input already carries the
+    columns, a cached pointers file exists, or Athena has to be asked.
+    """
+    if rows and all(all(r.get(c) for c in POINTER_COLS) for r in rows):
+        print("  input already carries pointers, skipping Athena")
+        return {r["url"]: r for r in rows}
+
+    if pointers_file and os.path.exists(pointers_file):
+        pointers = {r["url"]: r for r in load_jsonl(pointers_file)}
+        print(f"  reusing {pointers_file} ({len(pointers)} rows) - delete it to re-query")
+        return pointers
+
+    pointers = fetch_pointers([r["url"] for r in rows])
+    if pointers_file:
+        os.makedirs(os.path.dirname(pointers_file) or ".", exist_ok=True)
+        with open(pointers_file, "w", encoding="utf-8") as f:
             for url in sorted(pointers):
                 f.write(json.dumps(pointers[url]) + "\n")
-        print(f"  wrote {POINTERS_FILE}")
+        print(f"  wrote {pointers_file}")
+    return pointers
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__.strip().split("\n\n")[0])
+    ap.add_argument("--input", default=DEFAULT_INPUT,
+                    help="jsonl with a 'url' field per row")
+    ap.add_argument("--output", default=DEFAULT_OUTPUT,
+                    help="jsonl of extracted text, one row per input URL")
+    ap.add_argument("--pointers", default=DEFAULT_POINTERS,
+                    help="where the index lookup is cached, so it runs once "
+                         "per URL list")
+    args = ap.parse_args()
+
+    INPUT_FILE, OUTPUT_FILE, POINTERS_FILE = args.input, args.output, args.pointers
+
+    labeled = load_jsonl(INPUT_FILE)
+    print(f"--- {len(labeled)} URLs from {INPUT_FILE} ---")
+
+    print("\n1. WARC pointers")
+    pointers = resolve_pointers(labeled, POINTERS_FILE)
 
     print("\n2. Page text")
     # A previous run's throttled rows are worth another attempt; a row that
@@ -276,10 +324,11 @@ def main():
     ok = [r for r in rows if r["text"]]
     print(f"\n  {len(rows)} rows, {len(ok)} with text, "
           f"{len(rows) - len(ok)} skipped")
-    print(f"  legal with text   : {sum(1 for r in ok if r['label'] == 'legal')}")
-    print(f"  non_legal with text: {sum(1 for r in ok if r['label'] == 'non_legal')}")
+    if any(r.get("label") for r in ok):
+        print(f"  legal with text   : {sum(1 for r in ok if r['label'] == 'legal')}")
+        print(f"  non_legal with text: {sum(1 for r in ok if r['label'] == 'non_legal')}")
     if len(rows) != len(labeled):
-        print(f"  WARNING: {len(rows)} rows != {len(labeled)} labeled URLs")
+        print(f"  WARNING: {len(rows)} rows != {len(labeled)} input URLs")
 
 
 if __name__ == "__main__":

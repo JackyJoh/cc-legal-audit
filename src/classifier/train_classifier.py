@@ -1,146 +1,177 @@
 """
-Temp trainer: char n-gram TF-IDF + logistic regression on the URL string
-alone. Trains on data/processed/labeled_urls.jsonl, reports held-out
-metrics, then scores a batch of genuinely out-of-sample URLs (pulled from
-raw_pool.jsonl, filtered to URLs never in candidates.jsonl, so the model
-has never seen them in any form) and prints the ones it's most confident
-are legal.
-"""
-import json
-import random
+Trains the legal/non-legal classifier and writes it to disk so it can score
+documents later.
 
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.linear_model import LogisticRegression
+Usage: python src/classifier/train_classifier.py --features url|text
+
+Feature recipes come from features.py rather than being spelled out here, so
+the trainer and eval_grouped.py cannot end up fitting different models.
+
+Two fits per run, on purpose:
+
+  1. On an 80/20 stratified split, to report held-out metrics and a threshold
+     sweep. These are the numbers to quote.
+  2. On all the labels, and that is the model saved to disk. Refitting on
+     everything is the normal thing to ship, but it means the saved model has
+     seen every row, so its own predictions on the label set are worthless as
+     a measurement. That is what fit (1) is for.
+
+The saved bundle carries the fitted vectorizer, the fitted model, and enough
+provenance to tell later whether a score came from this model: which label
+file was used and its hash, which extractor produced the training text, and
+the library versions. score.py refuses to run if the vectorizer and the
+documents it is handed disagree about any of that.
+
+Output: models/<mode>_clf.joblib, gitignored. It rebuilds from the label
+files in about 5 seconds, so there is no reason to version it.
+"""
+import argparse
+import hashlib
+import json
+import os
+import platform
+from datetime import datetime, timezone
+
+import joblib
+import sklearn
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, precision_score, recall_score, f1_score
 
-LABELED_FILES = ["data/processed/labeled_urls.jsonl"]
-CANDIDATES_FILES = [
-    "data/candidates/candidates.jsonl",
-    "data/candidates/targeted_batch.jsonl",
-    "data/candidates/host_sample_batch.jsonl",
-]
-RAW_POOL_FILE = "data/candidates/raw_pool.jsonl"
+from features import (MODES, MIN_DOMAIN_DF, load_labeled, make_classifier,
+                      read_jsonl)
+
 SEED = 42
-N_OOS = 20
-# precision over recall on purpose: false positives pollute the (tiny) legal
-# bucket that topic diversity gets measured on, false negatives just get
-# reabsorbed into the (huge) non_legal bucket where they're a rounding error.
-# 0.85 gives ~91% precision / ~54% recall on the current held-out set, see
-# data/processed/threshold_sweep_results.csv for the full sweep. Recall at
-# this threshold is domain-dependent, not uniform: see the README's
-# "Domain generalization" section for the leave-one-domain-out numbers.
-OPERATING_THRESHOLD = 0.85
+TEST_SIZE = 0.2
+MODEL_DIR = "models"
+THRESHOLDS = [0.5, 0.6, 0.65, 0.7, 0.75, 0.85, 0.9, 0.95]
+
+# Provisional. Recorded in the bundle as a default, not as a validated
+# operating point: both were picked from held-out label-set metrics, where
+# legal is ~24% of rows. In the real crawl it is nearer 0.1%, and precision
+# does not survive that change of base rate. Until the deployment sample is
+# labeled, treat these as placeholders.
+DEFAULT_THRESHOLD = {"url": 0.85, "text": 0.60}
 
 
-def load_labeled(paths):
-    """Load and merge one or more labeled_urls.jsonl-shaped files, deduping
-    by URL (first file wins) so the same URL can't appear twice even if it
-    somehow shows up in more than one source file."""
-    by_url = {}
-    for path in paths:
-        with open(path, encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                obj = json.loads(line)
-                by_url.setdefault(obj["url"], obj["label"])
-    urls = list(by_url.keys())
-    labels = list(by_url.values())
-    return urls, labels
+def file_sha256(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(1 << 20), b""):
+            h.update(block)
+    return h.hexdigest()
 
 
-def load_urls(path):
-    urls = []
-    with open(path, encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if line:
-                urls.append(json.loads(line)["url"])
-    return urls
+def extractors_used(mode, path):
+    """Which text extractor produced the training documents.
+
+    Only meaningful in text mode. trafilatura 1.x and 2.x return different
+    text for the same HTML, so a model trained on one and scoring the other
+    is not doing what it looks like it is doing.
+    """
+    if mode != "text":
+        return []
+    return sorted({r.get("extractor") for r in read_jsonl(path)
+                   if r.get("text") and r.get("extractor")})
+
+
+def fit(mode, docs, labels, domains):
+    make_vec, _, _ = MODES[mode]
+    vec = make_vec()
+    Xv = vec.fit_transform(docs, domains)
+    clf = make_classifier()
+    clf.fit(Xv, labels)
+    return vec, clf
+
+
+def legal_probs(vec, clf, docs):
+    idx = list(clf.classes_).index("legal")
+    return clf.predict_proba(vec.transform(docs))[:, idx]
+
+
+def report_holdout(mode, docs, labels, domains):
+    """Fit on 80%, score the held-out 20%. Publishers appear on both sides of
+    this split, so it overstates performance on unseen sites. eval_grouped.py
+    is the script that measures that gap."""
+    X_tr, X_te, y_tr, y_te, d_tr, _ = train_test_split(
+        docs, labels, domains, test_size=TEST_SIZE, random_state=SEED,
+        stratify=labels)
+    vec, clf = fit(mode, X_tr, y_tr, d_tr)
+    probs = legal_probs(vec, clf, X_te)
+    y_bin = [1 if y == "legal" else 0 for y in y_te]
+
+    print(f"\n--- held-out test set ({len(X_te)} rows: {sum(y_bin)} legal / "
+          f"{len(y_bin) - sum(y_bin)} non_legal) ---")
+    print(classification_report(y_te, clf.predict(vec.transform(X_te))))
+
+    print("--- threshold sweep (held-out) ---")
+    print(f"{'thresh':>7} {'precision':>10} {'recall':>8} {'f1':>7} {'flagged':>8}")
+    for t in THRESHOLDS:
+        preds = [1 if p >= t else 0 for p in probs]
+        print(f"{t:>7.2f} "
+              f"{precision_score(y_bin, preds, zero_division=0):>10.3f} "
+              f"{recall_score(y_bin, preds, zero_division=0):>8.3f} "
+              f"{f1_score(y_bin, preds, zero_division=0):>7.3f} "
+              f"{sum(preds):>8}")
 
 
 def main():
-    random.seed(SEED)
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--features", choices=sorted(MODES), default="text",
+                    help="what the model reads: the URL string, or the "
+                         "extracted page text")
+    ap.add_argument("--threshold", type=float, default=None,
+                    help="operating threshold recorded in the bundle "
+                         "(default: 0.85 for url, 0.60 for text, both "
+                         "provisional pending the deployment sample)")
+    ap.add_argument("--out", default=None,
+                    help="where to write the bundle "
+                         "(default: models/<features>_clf.joblib)")
+    args = ap.parse_args()
 
-    urls, labels = load_labeled(LABELED_FILES)
-    print(f"Loaded {len(urls)} labeled URLs "
-          f"({labels.count('legal')} legal, {labels.count('non_legal')} non_legal)")
+    mode = args.features
+    threshold = args.threshold if args.threshold is not None else DEFAULT_THRESHOLD[mode]
+    out_path = args.out or os.path.join(MODEL_DIR, f"{mode}_clf.joblib")
 
-    X_train, X_test, y_train, y_test = train_test_split(
-        urls, labels, test_size=0.2, random_state=SEED, stratify=labels
-    )
+    print(f"--- loading (features: {mode}) ---")
+    urls, docs, labels, domains, path = load_labeled(mode)
+    print(f"{len(urls)} labeled rows from {path} "
+          f"({labels.count('legal')} legal, {labels.count('non_legal')} non_legal) "
+          f"across {len(set(domains))} registered domains")
 
-    vectorizer = TfidfVectorizer(analyzer="char", ngram_range=(3, 5), min_df=2)
-    X_train_vec = vectorizer.fit_transform(X_train)
-    X_test_vec = vectorizer.transform(X_test)
+    report_holdout(mode, docs, labels, domains)
 
-    clf = LogisticRegression(class_weight="balanced", max_iter=2000)
-    clf.fit(X_train_vec, y_train)
+    print(f"\n--- refitting on all {len(docs)} rows for the saved model ---")
+    vec, clf = fit(mode, docs, labels, domains)
+    n_features = len(vec.get_feature_names_out())
+    print(f"vocabulary: {n_features} features after the domain purity filter "
+          f"(min_domain_df={MIN_DOMAIN_DF})")
 
-    print("\n--- held-out test set (default 0.5 threshold) ---")
-    print(classification_report(y_test, clf.predict(X_test_vec)))
+    bundle = {
+        "vectorizer": vec,
+        "classifier": clf,
+        "mode": mode,
+        "threshold": threshold,
+        "meta": {
+            "trained_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "label_file": path,
+            "label_file_sha256": file_sha256(path),
+            "n_train": len(docs),
+            "n_legal": labels.count("legal"),
+            "n_domains": len(set(domains)),
+            "n_features": n_features,
+            "min_domain_df": MIN_DOMAIN_DF,
+            "extractors": extractors_used(mode, path),
+            "seed": SEED,
+            "sklearn": sklearn.__version__,
+            "python": platform.python_version(),
+        },
+    }
 
-    legal_idx = list(clf.classes_).index("legal")
-    test_probs = clf.predict_proba(X_test_vec)[:, legal_idx]
-    y_test_bin = [1 if y == "legal" else 0 for y in y_test]
-
-    print("--- threshold sweep on legal confidence (held-out test set) ---")
-    print(f"{'threshold':>9} {'precision':>9} {'recall':>9} {'f1':>9} {'n_flagged':>9}")
-    for t in [0.5, 0.6, 0.7, 0.8, 0.9, 0.95]:
-        preds = [1 if p >= t else 0 for p in test_probs]
-        p = precision_score(y_test_bin, preds, zero_division=0)
-        r = recall_score(y_test_bin, preds, zero_division=0)
-        f1 = f1_score(y_test_bin, preds, zero_division=0)
-        n_flagged = sum(preds)
-        print(f"{t:>9.2f} {p:>9.3f} {r:>9.3f} {f1:>9.3f} {n_flagged:>9}")
-
-    # genuinely unseen URLs: raw pool minus anything ever in either candidate batch
-    candidates = set()
-    for path in CANDIDATES_FILES:
-        candidates.update(load_urls(path))
-    raw_pool = load_urls(RAW_POOL_FILE)
-    oos_pool = [u for u in raw_pool if u not in candidates]
-    oos_sample = random.sample(oos_pool, min(2000, len(oos_pool)))
-
-    oos_vec = vectorizer.transform(oos_sample)
-    probs = clf.predict_proba(oos_vec)
-    legal_idx = list(clf.classes_).index("legal")
-    scored = sorted(zip(oos_sample, probs[:, legal_idx]), key=lambda x: -x[1])
-
-    print(f"\n--- top {N_OOS} most-confident 'legal' predictions out of "
-          f"{len(oos_sample)} unseen raw-pool URLs ---")
-    for url, p in scored[:N_OOS]:
-        print(f"{p:.3f}  {url}")
-
-    n_at_threshold = sum(1 for _, p in scored if p >= OPERATING_THRESHOLD)
-    print(f"\nAt operating threshold {OPERATING_THRESHOLD}: "
-          f"{n_at_threshold}/{len(oos_sample)} unseen URLs would be kept as legal")
-
-    # scan the full 600k raw pool in order, in chunks, stopping as soon as
-    # N_TARGET_HITS clear the operating threshold
-    N_TARGET_HITS = 5
-    CHUNK_SIZE = 5000
-    print(f"\n--- scanning full raw pool ({len(raw_pool)} URLs) for "
-          f"{N_TARGET_HITS} hits at threshold {OPERATING_THRESHOLD} ---")
-    hits = []
-    scanned = 0
-    for start in range(0, len(raw_pool), CHUNK_SIZE):
-        chunk = raw_pool[start:start + CHUNK_SIZE]
-        chunk_vec = vectorizer.transform(chunk)
-        chunk_probs = clf.predict_proba(chunk_vec)[:, legal_idx]
-        scanned += len(chunk)
-        for url, p in zip(chunk, chunk_probs):
-            if p >= OPERATING_THRESHOLD:
-                hits.append((url, p))
-                print(f"  [{scanned} scanned] {p:.3f}  {url}")
-                if len(hits) >= N_TARGET_HITS:
-                    break
-        if len(hits) >= N_TARGET_HITS:
-            break
-
-    print(f"\nFound {len(hits)} hits after scanning {scanned}/{len(raw_pool)} URLs.")
+    os.makedirs(MODEL_DIR, exist_ok=True)
+    joblib.dump(bundle, out_path, compress=3)
+    size_mb = os.path.getsize(out_path) / (1024 ** 2)
+    print(f"\nwrote {out_path} ({size_mb:.1f} MB), threshold {threshold}")
+    print(json.dumps(bundle["meta"], indent=2))
 
 
 if __name__ == "__main__":

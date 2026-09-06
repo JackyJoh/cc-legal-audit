@@ -1,91 +1,77 @@
 """
-Full precision/recall/F1 sweep across confidence thresholds for the current
-classifier, on the same held-out test split train_classifier.py uses.
-Written for the record (research writeup), not just eyeballing.
-"""
-import csv
-import json
+Writes the full threshold sweep to CSV for the writeup.
 
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.linear_model import LogisticRegression
+Usage: python src/classifier/threshold_sweep_full.py --features url|text
+
+Same split and same feature recipe as train_classifier.py, at every threshold
+from 0.05 to 0.95 instead of the handful the trainer prints, with raw tp/fp/fn
+counts alongside the rates so the numbers can be recomputed from the file.
+
+Publishers appear on both sides of this split, so these are within-publisher
+numbers. eval_grouped.py is what measures performance on unseen publishers.
+"""
+import argparse
+import csv
+
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import precision_score, recall_score, f1_score
 
-LABELED_FILES = ["data/processed/labeled_urls.jsonl"]
-SEED = 42
-OUTPUT_CSV = "data/processed/threshold_sweep_results.csv"
+from features import MODES, load_labeled
+from train_classifier import SEED, TEST_SIZE, fit, legal_probs
 
-
-def load_labeled(paths):
-    by_url = {}
-    for path in paths:
-        with open(path, encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                obj = json.loads(line)
-                by_url.setdefault(obj["url"], obj["label"])
-    urls = list(by_url.keys())
-    labels = list(by_url.values())
-    return urls, labels
+OUTPUT_CSV = "data/processed/threshold_sweep_{mode}.csv"
+THRESHOLDS = [round(t * 0.05, 2) for t in range(1, 20)]
 
 
 def main():
-    urls, labels = load_labeled(LABELED_FILES)
-    print(f"Loaded {len(urls)} labeled URLs "
+    ap = argparse.ArgumentParser(description=__doc__.strip().split("\n\n")[0])
+    ap.add_argument("--features", choices=sorted(MODES), default="text")
+    ap.add_argument("--output", default=None,
+                    help="default: data/processed/threshold_sweep_<features>.csv")
+    args = ap.parse_args()
+
+    mode = args.features
+    out_csv = args.output or OUTPUT_CSV.format(mode=mode)
+
+    urls, docs, labels, domains, path = load_labeled(mode)
+    print(f"{len(urls)} labeled rows from {path} "
           f"({labels.count('legal')} legal, {labels.count('non_legal')} non_legal)")
 
-    X_train, X_test, y_train, y_test = train_test_split(
-        urls, labels, test_size=0.2, random_state=SEED, stratify=labels
-    )
-    print(f"Train: {len(X_train)}  Test: {len(X_test)} "
-          f"({y_test.count('legal')} legal, {y_test.count('non_legal')} non_legal)")
-
-    vectorizer = TfidfVectorizer(analyzer="char", ngram_range=(3, 5), min_df=2)
-    X_train_vec = vectorizer.fit_transform(X_train)
-    X_test_vec = vectorizer.transform(X_test)
-
-    clf = LogisticRegression(class_weight="balanced", max_iter=2000)
-    clf.fit(X_train_vec, y_train)
-
-    legal_idx = list(clf.classes_).index("legal")
-    test_probs = clf.predict_proba(X_test_vec)[:, legal_idx]
-    y_test_bin = [1 if y == "legal" else 0 for y in y_test]
-
-    thresholds = [round(t * 0.05, 2) for t in range(1, 20)]  # 0.05 .. 0.95
+    X_tr, X_te, y_tr, y_te, d_tr, _ = train_test_split(
+        docs, labels, domains, test_size=TEST_SIZE, random_state=SEED,
+        stratify=labels)
+    vec, clf = fit(mode, X_tr, y_tr, d_tr)
+    probs = legal_probs(vec, clf, X_te)
+    y_bin = [1 if y == "legal" else 0 for y in y_te]
+    print(f"train {len(X_tr)}  test {len(X_te)} "
+          f"({sum(y_bin)} legal / {len(y_bin) - sum(y_bin)} non_legal)")
 
     rows = []
-    for t in thresholds:
-        preds = [1 if p >= t else 0 for p in test_probs]
-        n_flagged = sum(preds)
-        tp = sum(1 for pr, yt in zip(preds, y_test_bin) if pr == 1 and yt == 1)
-        fp = sum(1 for pr, yt in zip(preds, y_test_bin) if pr == 1 and yt == 0)
-        fn = sum(1 for pr, yt in zip(preds, y_test_bin) if pr == 0 and yt == 1)
-        p = precision_score(y_test_bin, preds, zero_division=0)
-        r = recall_score(y_test_bin, preds, zero_division=0)
-        f1 = f1_score(y_test_bin, preds, zero_division=0)
+    for t in THRESHOLDS:
+        preds = [1 if p >= t else 0 for p in probs]
         rows.append({
-            "threshold": t, "precision": round(p, 4), "recall": round(r, 4),
-            "f1": round(f1, 4), "n_flagged": n_flagged, "tp": tp, "fp": fp, "fn": fn,
+            "threshold": t,
+            "precision": round(precision_score(y_bin, preds, zero_division=0), 4),
+            "recall": round(recall_score(y_bin, preds, zero_division=0), 4),
+            "f1": round(f1_score(y_bin, preds, zero_division=0), 4),
+            "n_flagged": sum(preds),
+            "tp": sum(1 for pr, yt in zip(preds, y_bin) if pr and yt),
+            "fp": sum(1 for pr, yt in zip(preds, y_bin) if pr and not yt),
+            "fn": sum(1 for pr, yt in zip(preds, y_bin) if not pr and yt),
         })
 
     print(f"\n{'thresh':>7} {'precision':>10} {'recall':>8} {'f1':>7} "
           f"{'flagged':>8} {'tp':>4} {'fp':>4} {'fn':>4}")
-    for row in rows:
-        print(f"{row['threshold']:>7.2f} {row['precision']:>10.4f} {row['recall']:>8.4f} "
-              f"{row['f1']:>7.4f} {row['n_flagged']:>8} {row['tp']:>4} {row['fp']:>4} {row['fn']:>4}")
+    for r in rows:
+        print(f"{r['threshold']:>7.2f} {r['precision']:>10.4f} {r['recall']:>8.4f} "
+              f"{r['f1']:>7.4f} {r['n_flagged']:>8} {r['tp']:>4} {r['fp']:>4} "
+              f"{r['fn']:>4}")
 
-    with open(OUTPUT_CSV, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=[
-            "threshold", "precision", "recall", "f1", "n_flagged", "tp", "fp", "fn"
-        ])
+    with open(out_csv, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=list(rows[0]))
         writer.writeheader()
         writer.writerows(rows)
-
-    print(f"\nHeld-out test set: {len(X_test)} total "
-          f"({sum(y_test_bin)} legal / {len(y_test_bin) - sum(y_test_bin)} non_legal)")
-    print(f"Written: {OUTPUT_CSV}")
+    print(f"\nWritten: {out_csv}")
 
 
 if __name__ == "__main__":

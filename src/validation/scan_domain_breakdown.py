@@ -1,105 +1,99 @@
 """
-Large-scale scan across both raw pools (raw_pool.jsonl, 600k, unrestricted;
-raw_pool_no_ca.jsonl, 1.5M, .ca excluded) with the current classifier at
-OPERATING_THRESHOLD, grouped by root domain. Answers: when the model says
-"legal" with high confidence, which domains is it actually finding?
+Groups a model's flagged pages by publisher.
+
+Usage:
+  python src/validation/scan_domain_breakdown.py \
+      --model models/text_clf.joblib --pool data/candidates/raw_pool.jsonl
+
+Answers the question a precision number cannot: when the model says legal,
+whose pages is it actually finding? A model can post good precision while
+only ever firing on two or three sites, which would mean the "legal" bucket
+the dedup study measures is really those sites rather than legal text in
+general. That is a validity problem for the study, not a model-quality one,
+so it needs to be visible separately from the score.
+
+Reads its model from disk rather than fitting one, so the breakdown always
+names the model that produced it.
 """
-import json
+import argparse
+import os
+import sys
 from collections import Counter
-from urllib.parse import urlparse
 
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.linear_model import LogisticRegression
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                "..", "classifier"))
+from features import (MODES, domain_of, legal_probs, load_bundle,  # noqa: E402
+                      read_jsonl)
 
-LABELED_FILES = ["data/processed/labeled_urls.jsonl"]
-CANDIDATES_FILES = [
+DEFAULT_POOLS = [
+    "data/candidates/raw_pool.jsonl",
+    "data/candidates/raw_pool_no_ca.jsonl",
+]
+DEFAULT_EXCLUDE = [
     "data/candidates/candidates.jsonl",
     "data/candidates/targeted_batch.jsonl",
     "data/candidates/host_sample_batch.jsonl",
 ]
-RAW_POOL_FILES = [
-    "data/candidates/raw_pool.jsonl",
-    "data/candidates/raw_pool_no_ca.jsonl",
-]
-OPERATING_THRESHOLD = 0.85
 CHUNK_SIZE = 20000
 
 
-def load_labeled(paths):
-    by_url = {}
-    for path in paths:
-        with open(path, encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                obj = json.loads(line)
-                by_url.setdefault(obj["url"], obj["label"])
-    return list(by_url.keys()), list(by_url.values())
-
-
-def load_urls(path):
-    urls = []
-    with open(path, encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if line:
-                urls.append(json.loads(line)["url"])
-    return urls
-
-
-def root_domain(url):
-    host = urlparse(url).netloc.split(":")[0]
-    parts = host.split(".")
-    return ".".join(parts[-2:]) if len(parts) >= 2 else host
-
-
 def main():
-    urls, labels = load_labeled(LABELED_FILES)
-    print(f"Training on {len(urls)} labeled URLs "
-          f"({labels.count('legal')} legal, {labels.count('non_legal')} non_legal)")
+    ap = argparse.ArgumentParser(description=__doc__.strip().split("\n\n")[0])
+    ap.add_argument("--model", required=True)
+    ap.add_argument("--pool", nargs="*", default=DEFAULT_POOLS,
+                    help="one or more jsonl files to scan")
+    ap.add_argument("--threshold", type=float, default=None,
+                    help="default: the threshold recorded in the model")
+    ap.add_argument("--exclude", nargs="*", default=DEFAULT_EXCLUDE)
+    args = ap.parse_args()
 
-    vectorizer = TfidfVectorizer(analyzer="char", ngram_range=(3, 5), min_df=2)
-    X = vectorizer.fit_transform(urls)
-    clf = LogisticRegression(class_weight="balanced", max_iter=2000)
-    clf.fit(X, labels)
-    legal_idx = list(clf.classes_).index("legal")
-
-    already_used = set()
-    for path in CANDIDATES_FILES:
-        already_used.update(load_urls(path))
+    bundle = load_bundle(args.model)
+    field = MODES[bundle["mode"]][2]
+    threshold = args.threshold if args.threshold is not None else bundle["threshold"]
 
     seen = set()
-    pool = []
-    for path in RAW_POOL_FILES:
-        for u in load_urls(path):
-            if u in already_used or u in seen:
+    for path in args.exclude:
+        if os.path.exists(path):
+            seen.update(r["url"] for r in read_jsonl(path))
+
+    pool, urls_seen = [], set()
+    for path in args.pool:
+        if not os.path.exists(path):
+            print(f"  skipping missing {path}")
+            continue
+        for r in read_jsonl(path):
+            u = r.get("url")
+            if not r.get(field) or u in seen or u in urls_seen:
                 continue
-            seen.add(u)
-            pool.append(u)
+            urls_seen.add(u)
+            pool.append(r)
+    if not pool:
+        raise SystemExit(f"no usable rows (need a '{field}' field)")
+    print(f"\nscanning {len(pool)} unseen rows at threshold {threshold}")
 
-    print(f"Combined unseen pool: {len(pool)} URLs")
-
-    flagged_by_domain = Counter()
-    total_scanned = 0
+    by_domain = Counter()
+    n_flagged = 0
     for start in range(0, len(pool), CHUNK_SIZE):
         chunk = pool[start:start + CHUNK_SIZE]
-        probs = clf.predict_proba(vectorizer.transform(chunk))[:, legal_idx]
-        for url, p in zip(chunk, probs):
-            if p >= OPERATING_THRESHOLD:
-                flagged_by_domain[root_domain(url)] += 1
-        total_scanned += len(chunk)
-        if total_scanned % 200000 == 0 or total_scanned == len(pool):
-            print(f"  scanned {total_scanned}/{len(pool)}, "
-                  f"{sum(flagged_by_domain.values())} flagged so far")
+        probs = legal_probs(bundle, [r[field] for r in chunk])
+        for r, p in zip(chunk, probs):
+            if p >= threshold:
+                by_domain[domain_of(r["url"])] += 1
+                n_flagged += 1
+        done = min(start + CHUNK_SIZE, len(pool))
+        if done % 200000 == 0 or done == len(pool):
+            print(f"  {done}/{len(pool)}, {n_flagged} flagged")
 
-    total_flagged = sum(flagged_by_domain.values())
-    print(f"\nTotal scanned: {total_scanned}")
-    print(f"Total flagged at threshold {OPERATING_THRESHOLD}: {total_flagged}")
-    print(f"\n{'domain':<25} {'count':>7} {'% of flagged':>13}")
-    for domain, count in flagged_by_domain.most_common():
-        pct = count / total_flagged * 100
-        print(f"{domain:<25} {count:>7} {pct:>12.1f}%")
+    print(f"\nflagged {n_flagged}/{len(pool)} ({n_flagged / len(pool):.4%}) "
+          f"across {len(by_domain)} registered domains")
+    if not n_flagged:
+        return
+    print(f"\n{'domain':<32} {'count':>7} {'% flagged':>10} {'cumulative':>11}")
+    cum = 0
+    for domain, count in by_domain.most_common():
+        cum += count
+        print(f"{domain:<32} {count:>7} {count / n_flagged:>9.1%} "
+              f"{cum / n_flagged:>10.1%}")
 
 
 if __name__ == "__main__":

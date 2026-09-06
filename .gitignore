@@ -14,3 +14,5 @@ data/candidates/_cl_courts_cache.jsonl
 # ~100MB of extracted page text, regenerate via src/text/fetch_warc_text.py
 # from the committed warc_pointers.jsonl (no Athena spend needed)
 data/processed/labeled_text.jsonl
+# fitted models, ~5s to rebuild via src/classifier/train_classifier.py
+models/

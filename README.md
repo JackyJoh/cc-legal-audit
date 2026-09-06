@@ -32,7 +32,7 @@ Curated domain whitelist + a conservative hostname-keyword fallback (details in 
 2. **Candidate sourcing.** Three separate passes so far, each targeting a different gap found in the one before it (see below for how each was sourced): the original 2990-URL batch (`fetch_candidate_urls.py` + `build_label_batch.py`, mixing rule-based prefilter hits, raw random URLs, and synthetic homepage negatives), an error-driven +500 batch (`fetch_targeted_urls.py`), and a CourtListener-derived host sample (`fetch_cl_hostnames.py` + `fetch_cl_urls.py`).
 3. **Labeling runs**: parallel instances of the labeling agent worked each batch, producing 4044 labeled URLs total (1156 legal / 2888 non_legal) across the three passes, plus skips where the source blocked automated fetches with no accessible mirror. This is a single automated labeling policy (same model/prompt) applied at scale with human audit after the fact, not independent human annotators.
 4. **Audit, correction, and merge** (`intake.py`): one script merges all three passes' raw per-worker output into `data/processed/labeled_urls.jsonl`, tagging each row with which pass produced it. Manual review of the original batch's legal-labeled set caught two systematic errors under the original (looser) definition (18 link-only pages and 16 index/landing pages templated across a URL family by one worker), corrected to non_legal, which is what drove tightening the labeling definition in step 1. A follow-up grep-by-rationale-keyword audit found no further drift.
-5. **Training** (`train_classifier.py`): char n-gram (3–5) TF-IDF vectorizer + logistic regression, fit on the corrected label set with an 80/20 stratified held-out split (seed 42). URL string only as the feature: no page content, no hardcoded domain or keyword lists.
+5. **Training** (`train_classifier.py`): char n-gram (3-5) TF-IDF vectorizer + logistic regression, fit on the corrected label set with an 80/20 stratified held-out split (seed 42). URL string only as the feature: no page content, no hardcoded domain or keyword lists.
 6. **Threshold selection**: chose an operating threshold of 0.85 on predicted legal-probability, prioritizing precision over recall. False positives pollute the small legal bucket the downstream topic-diversity analysis depends on; false negatives are reabsorbed into the much larger non-legal bucket where they're a negligible rounding error.
 
 **Results** (held-out test set, 809 URLs: 231 legal / 578 non_legal; full sweep in `data/processed/threshold_sweep_results.csv`):
@@ -85,9 +85,11 @@ Same 4044 labels, same evaluation script, same splits. The only thing that chang
 
 **Pipeline.**
 
-1. `src/text/fetch_warc_text.py` joins the labeled URLs to the Common Crawl index through Athena to get each capture's WARC filename, byte offset and length, then range-fetches those bytes over HTTP and extracts text with trafilatura. 3996 of 4044 labeled URLs (98.8%) are present in CC-MAIN-2026-12, and 3787 (93.6%) produced usable text: 902 legal / 2885 non_legal. Per-publisher coverage is 92 to 100%, so no domain is too depleted to hold out fairly.
-2. `src/classifier/features.py` holds both feature recipes in one place so training and evaluation cannot drift onto different settings. `url` is the existing char 3-5 gram vectorizer, unchanged. `text` is word unigrams and bigrams over the page body.
-3. `eval_grouped.py --features url|text` runs identical splits and metrics against either, which is what makes the two comparable.
+1. `src/corpus/fetch_warc_text.py` joins the labeled URLs to the Common Crawl index through Athena to get each capture's WARC filename, byte offset and length, then range-fetches those bytes over HTTP and extracts text with trafilatura. 3996 of 4044 labeled URLs (98.8%) are present in CC-MAIN-2026-12, and 3787 (93.6%) produced usable text: 902 legal / 2885 non_legal. Per-publisher coverage is 92 to 100%, so no domain is too depleted to hold out fairly.
+2. `src/classifier/features.py` holds both feature recipes in one place so training, scoring and evaluation cannot drift onto different settings. `url` is the existing char 3-5 gram vectorizer, unchanged. `text` is word unigrams and bigrams over the page body.
+3. `train_classifier.py --features url|text` reports held-out metrics, then refits on all labels and saves the fitted vectorizer and model to `models/<mode>_clf.joblib`. The bundle records the label file's hash, the trafilatura version that produced the training text, and the library versions, so a score can be traced to the model that produced it.
+4. `score.py` scores any jsonl with a saved bundle. This is what lets the model be pointed at unlabeled crawl pages rather than only at its own test set.
+5. `eval_grouped.py --features url|text` runs identical splits and metrics against either, which is what makes the two comparable.
 
 **Extraction settings** are load-bearing, so trafilatura is pinned at 2.2.0 and the version is recorded on every output row:
 
@@ -125,44 +127,50 @@ Leave-one-domain-out precision is also nearly flat from 0.50 to 0.85 (0.901 to 0
 
 - `cornell.edu` is the one weak publisher, at 0.494 precision (t=0.60) against 0.64 to 1.00 everywhere else. Leave-one-domain-out scores only the held-out publisher's own rows, so every false positive there is a Cornell non-legal page, and Cornell is the only publisher with a large body of labeled hard negatives (the definition popups). A 50-word popup and a 60-word statute section look alike in bag of words.
 - The domain purity filter works on phrases but leaks on single words. `marginal`, `modified` and `note` survive because they appear incidentally on a few unrelated sites, while most of their weight still comes from one publisher. The fix is to filter on domain *concentration*, the share of a feature's occurrences coming from its top domain, rather than domain count.
-- The positive class is still roughly 80% statutes and regulations. Court opinions and bills are barely represented, so the corpus stays register-narrow even though the model now generalizes across publishers.
+- The positive class is register-narrow. Tagging all 955 legal labels by the labeling agent's own rationale: 660 statute or code (69%), 433 regulation (45%, overlapping), against 37 bills (3.9%), 28 court opinions (2.9%) and 3 filings. The 28 opinions sit almost entirely in cornell.edu (16) and judiciary.uk (10), so no publisher in the set has opinions as its dominant register. The model now generalizes across publishers, but the corpus it was trained on is mostly statutes and regulations.
+- Precision has not been measured on the real crawl distribution. Every number above comes from a label set that is about 24% legal; the crawl is nearer 0.1%. Precision does not transfer across that gap, only recall and false-positive rate do, so the 0.90+ figures should not be read as deployment precision. Converting the held-out false-positive rate and projecting onto a 0.1% base rate gives a much lower bound, though that projection is pessimistic because the labeled negatives are deliberately hard ones. The measurement to trust is a hand-labeled random draw from what the model flags on a uniform crawl sample, which has not been run yet.
 
 ## Code
 
 ```
 src/
-  sourcing/    pull URLs from Common Crawl, build labeling batches
-  intake/      merge raw labeling-agent output into clean label files
-  text/        fetch page text from Common Crawl for the labeled URLs
-  classifier/  train + evaluate the TF-IDF/LR model
+  samples/     draw URL samples from Common Crawl, build labeling batches
+  labels/      merge raw labeling-agent output into clean label files
+  corpus/      fetch and extract page text from Common Crawl
+  classifier/  train, score and evaluate the TF-IDF/LR model
   validation/  deployment-distribution precision sampling
 ```
 
-**`src/sourcing/`**
-- `fetch_candidate_urls.py`: Samples raw URLs from a CC snapshot via Athena TABLESAMPLE, writes `data/candidates/raw_pool.jsonl`. Pure sourcing, no classification.
-- `build_label_batch.py`: Turns that raw pool into the batch handed to the labeling agent — mixes rule-based prefilter hits (to boost legal density, since legal pages are ~0.2–0.3% of the raw crawl), raw random URLs, and synthetic homepage URLs for whitelisted domains (deliberate hard negatives for the index-vs-filing failure mode). Writes `data/candidates/candidates.jsonl`.
-- `fetch_targeted_urls.py`: Error-driven follow-up pull, not random — targets the specific domains/URL-shapes the false-negative analysis flagged. Writes `data/candidates/targeted_batch.jsonl`.
+Each folder is named for what it produces: samples go out to the labeling agents, labels come back.
+
+**`src/samples/`**
+- `fetch_candidate_urls.py`: Draws a uniform random URL sample from a CC snapshot, writes `data/candidates/raw_pool.jsonl`. Sizes the population with a count first, then samples with `TABLESAMPLE BERNOULLI(p)` and no `LIMIT`: a `LIMIT` returns whichever index files answered first, which is not a uniform sample and cannot be repaired by shuffling afterwards. Each row carries its WARC pointer, so page text can be fetched without a second index lookup.
+- `build_label_batch.py`: Turns that raw pool into the batch handed to the labeling agent: mixes rule-based prefilter hits (to boost legal density, since legal pages are ~0.2 to 0.3% of the raw crawl), raw random URLs, and synthetic homepage URLs for whitelisted domains (deliberate hard negatives for the index-vs-filing failure mode). Writes `data/candidates/candidates.jsonl`.
+- `fetch_targeted_urls.py`: Error-driven follow-up pull, not random, it targets the specific domains/URL-shapes the false-negative analysis flagged. Writes `data/candidates/targeted_batch.jsonl`.
 - `fetch_raw_pool_no_ca.py`: Second Athena pull excluding `.ca` domains, used to source the second deployment-validation sample from a different slice of the crawl.
 - `fetch_cl_hostnames.py`: Builds a directory of likely-legal hostnames from the CourtListener courts API plus a closed enumeration of all 50 state legislature sites. Writes `data/candidates/court_hostnames.jsonl`.
 - `count_cl_captures.py`: Ranks those hostnames by actual Common Crawl capture depth, since CourtListener docket size and crawl coverage are uncorrelated. Writes `data/candidates/cc_host_counts.jsonl`.
 - `fetch_cl_urls.py`: Draws a per-publisher URL sample from Common Crawl for the hostnames above (random URLs for hard negatives, one URL per path prefix for section coverage). Writes `data/candidates/host_sample_batch.jsonl`.
 - `athena.py`: Shared Athena query-runner (used by `count_cl_captures.py` and `fetch_cl_urls.py`) that also reports bytes scanned and estimated cost.
 
-**`src/intake/`**
+**`src/labels/`**
 - `intake.py`: Merges all three labeling passes' raw per-worker output into one file, `data/processed/labeled_urls.jsonl`, tagging each row with a `source` field (`original` / `target` / `cl`). Applies the two documented label corrections (link-only pages, index/landing pages) to the original pass only.
 
-**`src/text/`**
-- `fetch_warc_text.py`: Resolves each labeled URL to its Common Crawl capture (Athena, cached to `data/processed/warc_pointers.jsonl`), range-fetches the WARC record over HTTP, and extracts text with trafilatura. Writes `data/processed/labeled_text.jsonl`. Every input URL gets an output row, carrying a `skip_reason` when extraction failed, so counts always reconcile against the label file.
+**`src/corpus/`**
+- `fetch_warc_text.py`: Resolves each URL to its Common Crawl capture (Athena, cached to `data/processed/warc_pointers.jsonl`), range-fetches the WARC record over HTTP, and extracts text with trafilatura. Takes `--input/--output`, so the label set and any unlabeled crawl sample go through identical extraction. Every input URL gets an output row, carrying a `skip_reason` when extraction failed, so counts always reconcile against the input.
 
 **`src/classifier/`**
-- `features.py`: The two feature recipes, `url` (char 3-5 grams on the URL string) and `text` (word 1-2 grams on the page body), plus the domain purity filter. Kept in one file so training and evaluation cannot drift onto different settings.
-- `train_classifier.py`: Trains the char n-gram TF-IDF + logistic regression classifier on the merged label file, reports held-out metrics and a threshold sweep.
-- `threshold_sweep_full.py`: Full precision/recall/F1 sweep across thresholds, written to `data/processed/threshold_sweep_results.csv` for the record.
-- `eval_grouped.py`: Diagnostic, not the shipped metrics. Takes `--features url|text` so both models are scored by identical code — compares a random row split against a grouped (whole-domain-held-out) split and a leave-one-domain-out sweep, plus a coefficient audit, to check whether the classifier generalizes to unseen legal publishers or just recognizes known ones.
+- `features.py`: The two feature recipes, `url` (char 3-5 grams on the URL string) and `text` (word 1-2 grams on the page body), plus the domain purity filter and label loading. Kept in one file so training, scoring and evaluation cannot drift onto different settings.
+- `train_classifier.py`: Trains on the merged label file with `--features url|text`, reports held-out metrics and a threshold sweep, then refits on all labels and writes the fitted vectorizer and model to `models/<mode>_clf.joblib` with provenance (label file hash, extractor version, library versions).
+- `score.py`: Scores any jsonl with a saved bundle and reports the flag rate per threshold. Refuses to run when the input text came from a different extractor than the model was trained on.
+- `threshold_sweep_full.py`: Full precision/recall/F1 sweep across every threshold from 0.05 to 0.95, with raw tp/fp/fn counts, written to `data/processed/threshold_sweep_<mode>.csv` for the record.
+- `eval_grouped.py`: Diagnostic, not the shipped metrics. Takes `--features url|text` so both models are scored by identical code. Compares a random row split against a grouped (whole-domain-held-out) split and a leave-one-domain-out sweep, plus a coefficient audit, to check whether the classifier generalizes to unseen legal publishers or just recognizes known ones.
 
 **`src/validation/`**
-- `sample_deployment_validation.py` / `sample_deployment_validation_2.py`: Score the full (unlabeled) raw pool with the trained model, draw a genuinely random sample of the URLs that clear the operating threshold for hand-labeling — the deployment-distribution precision check.
-- `scan_domain_breakdown.py`: Scans the full raw pool at a given threshold and groups the flagged URLs by root domain, to see which publishers the model's confident predictions actually concentrate on.
+- `sample_deployment_validation.py`: Scores an unlabeled pool with a saved model, then draws a uniform random sample of what clears the threshold for hand-labeling. Random rather than confidence-sorted, since the top of the ranking is the easy part and would flatter the estimate. Writes the URLs and the scores to separate files so a probability cannot anchor the manual judgment, and prints the flag rate, which bounds precision before any labeling happens. Takes `--model/--pool`, replacing the earlier pair of near-identical per-pool scripts.
+- `scan_domain_breakdown.py`: Scans a pool at a given threshold and groups the flagged pages by registered domain, to see which publishers the model's confident predictions concentrate on. A model can hold good precision while only ever firing on two or three sites, which would make the study's legal bucket those sites rather than legal text.
+
+Both load a saved model rather than fitting one, so a reported number always names the model that produced it.
 
 ### Archive: rule-based classifier (`archive/rule-based/`)
 

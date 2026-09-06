@@ -1,48 +1,54 @@
 """
-Grouped evaluation: does the classifier generalise to legal publishers it has
-never seen, or is it recognising hostnames?
+Diagnostic: does the classifier recognise legal text, or just the handful of
+publishers it was trained on?
 
-train_classifier.py splits randomly over URL rows. With a positive class
-concentrated in a handful of registered domains, a random split puts the same
-publisher's URLs on both sides of it, so char n-gram TF-IDF can post a strong
-precision number by learning that publisher's own substrings. That measures
-within-domain interpolation, not generalisation - and the deployment
-validation points the same way, since its samples landed on the same domains
-that dominate training.
+The legal labels are concentrated in a few sites (cornell.edu, justice.gc.ca
+and virginia.gov are most of them). A normal 80/20 split shuffles rows, so
+those sites end up on both sides of it and the model can score well by
+learning their quirks. That tells you nothing about a legal site it has never
+seen. This script measures the difference by changing what goes in the
+holdout, and nothing else.
 
-The concentration table this script prints first is the evidence for that
-claim; read it rather than any figure quoted in a comment.
+Usage: python src/classifier/eval_grouped.py --features url|text
 
-This script runs three things:
+Four sections, printed in order:
 
-1. The random-row split, to reproduce the current headline numbers.
-2. A grouped split, holding whole registered domains out. Same model, same
-   threshold sweep. The gap between (1) and (2) is the leakage.
-3. Leave-one-domain-out: retrain without each legal-bearing domain in turn and
-   score only that domain. This is the per-publisher version of the same
-   question, and it says directly whether the thin domains recover.
+1. RANDOM ROW SPLIT. 80/20 over rows, publisher ignored. Reproduces the
+   headline numbers. Read it as a ceiling, not as performance.
 
-Plus a coefficient audit - if the top positive features are substrings of
-training hostnames, the per-host cap in sampling was too loose.
+2. GROUPED SPLIT. Same split, but the holdout is picked by publisher: choose
+   a set of domains, send every row from those domains to the test side. The
+   model sees none of them. Trains once, prints one threshold sweep in the
+   same shape as (1), so the two subtract. That difference is the leakage.
 
-Grouping is by registered domain, not hostname: law.cornell.edu and
-www.law.cornell.edu are the same publisher, and holding out only one of them
-would leak the other.
+3. LEAVE-ONE-DOMAIN-OUT. Same idea as (2), but one publisher at a time with a
+   retrain for each: drop cornell.edu, train on the rest, score cornell.edu's
+   rows only; repeat for the next domain. Needed because (2) pools its
+   holdout into a single number that one big domain can dominate, which hides
+   whether the small publishers recover. This shows each one separately.
 
-Read this as a diagnostic, not as the shipped model's metrics.
+4. COEFFICIENT AUDIT. Highest positive-weight features, fit on all data,
+   flagged when the feature is a substring of a training hostname. A top
+   feature like 'nell.' means the model is naming a publisher rather than
+   reading legal language. In text mode the same check catches site
+   boilerplate leaking in through the page body.
+
+Everything groups by registered domain, not hostname, so law.cornell.edu and
+www.law.cornell.edu count as one publisher. Holding out only one of them
+would leave the other in training.
+
+These are diagnostics. train_classifier.py reports the shipped model's
+metrics.
 """
 import argparse
-import json
-import os
 from collections import Counter
 from urllib.parse import urlparse
 
-import tldextract
-from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import precision_score, recall_score, f1_score
 
-from features import MODES, url_features
+from features import (MODES, domain_of, load_labeled, make_classifier,
+                      url_features)
 
 SEED = 42
 OPERATING_THRESHOLD = 0.85
@@ -51,50 +57,8 @@ THRESHOLDS = [0.5, 0.65, 0.75, 0.85, 0.9]
 MIN_LEGAL_FOR_LODO = 5
 N_TOP_FEATURES = 30
 
-_extract = tldextract.TLDExtract(suffix_list_urls=())
-
-
-def domain_of(url):
-    return _extract(urlparse(url).netloc or url).top_domain_under_public_suffix
-
-
 # set once by main() from --features; every fit in the run uses the same one
 _MAKE_VEC = url_features
-
-
-def load_labeled(mode):
-    """Load one mode's rows as parallel lists.
-
-    urls is kept alongside docs because the two diverge in text mode: the
-    model sees the page body, but domain grouping and the coefficient audit
-    still need to know which publisher a row came from. Rows whose extraction
-    failed carry a null text and are dropped here rather than silently
-    vectorising as empty strings.
-    """
-    _, path, field = MODES[mode]
-    if not os.path.exists(path):
-        raise SystemExit(f"missing {path} - run src/text/fetch_warc_text.py first")
-
-    by_url, dropped = {}, 0
-    with open(path, encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            obj = json.loads(line)
-            doc = obj.get(field)
-            if not doc:
-                dropped += 1
-                continue
-            by_url.setdefault(obj["url"], (doc, obj["label"]))
-
-    urls = list(by_url)
-    docs = [by_url[u][0] for u in urls]
-    labels = [by_url[u][1] for u in urls]
-    domains = [domain_of(u) for u in urls]
-    if dropped:
-        print(f"  dropped {dropped} rows with no {field}")
-    return urls, docs, labels, domains, path
 
 
 def fit(X_train, y_train, domains_train=None):
@@ -103,7 +67,7 @@ def fit(X_train, y_train, domains_train=None):
     the thing being tested for choose the feature set."""
     vec = _MAKE_VEC()
     Xv = vec.fit_transform(X_train, domains_train)
-    clf = LogisticRegression(class_weight="balanced", max_iter=2000)
+    clf = make_classifier()
     clf.fit(Xv, y_train)
     return vec, clf
 
@@ -258,7 +222,7 @@ def coefficient_audit(docs, labels, urls):
 
 def main():
     global _MAKE_VEC
-    ap = argparse.ArgumentParser(description=__doc__)
+    ap = argparse.ArgumentParser(description=__doc__.strip().split("\n\n")[0])
     ap.add_argument("--features", choices=sorted(MODES), default="url",
                     help="what the model looks at: the URL string, or the "
                          "extracted page text. Everything else is identical, "
