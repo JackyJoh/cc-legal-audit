@@ -130,6 +130,16 @@ Leave-one-domain-out precision is also nearly flat from 0.50 to 0.85 (0.901 to 0
 - The positive class is register-narrow. Tagging all 955 legal labels by the labeling agent's own rationale: 660 statute or code (69%), 433 regulation (45%, overlapping), against 37 bills (3.9%), 28 court opinions (2.9%) and 3 filings. The 28 opinions sit almost entirely in cornell.edu (16) and judiciary.uk (10), so no publisher in the set has opinions as its dominant register. The model now generalizes across publishers, but the corpus it was trained on is mostly statutes and regulations.
 - Precision has not been measured on the real crawl distribution. Every number above comes from a label set that is about 24% legal; the crawl is nearer 0.1%. Precision does not transfer across that gap, only recall and false-positive rate do, so the 0.90+ figures should not be read as deployment precision. Converting the held-out false-positive rate and projecting onto a 0.1% base rate gives a much lower bound, though that projection is pessimistic because the labeled negatives are deliberately hard ones. The measurement to trust is a hand-labeled random draw from what the model flags on a uniform crawl sample, which has not been run yet.
 
+### Sourcing the missing registers
+
+The register gap above is being closed by asking an outside authority where each publisher files its documents, rather than picking URL patterns by hand. The authority supplies the shape (which site, which section of it); Common Crawl supplies the actual candidate URLs, so nothing is sampled from the authority itself and there is no distribution shift. `src/samples/fetch_register_sources.py` does that step for both registers.
+
+**Bills: works.** Open States covers all 50 state legislatures and records a `sources` link back to each bill's page on its own state site. All 50 states are queried, so which ones are worth using gets decided later from measured crawl depth rather than guessed at up front.
+
+**Court opinions: this route does not work.** Measured over 220 CourtListener opinion records, 96% carry no `download_url` at all. Its corpus is overwhelmingly bulk donations (the schema carries `html_columbia`, `xml_harvard`, `html_lawbox`), so CourtListener holds the opinion text but has no record of a page it came from. The 9 records that did carry an address gave a govinfo PDF directory, an upload folder and PACER's paywalled gateway, none of them a court's opinion section. That is a property of the source rather than the sample size, so the opinion side needs a different authority or a different method.
+
+A PDF address still counts as a signpost, since it says which section a publisher files under and that section usually holds HTML too. Collecting PDFs *as documents* is a separate unsettled decision: it needs a second extractor, and PDF-to-text differs from HTML-to-text in hyphenation, repeated page furniture and whitespace, which is the surface variation 13-gram MinHash responds to. Doing that on the legal side only would confound the study's headline comparison.
+
 ## Code
 
 ```

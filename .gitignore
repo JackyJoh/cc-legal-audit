@@ -9,8 +9,9 @@ ccData/
 # raw Athena pulls, regenerate via fetch_candidate_urls.py / fetch_raw_pool_no_ca.py
 data/candidates/raw_pool.jsonl
 data/candidates/raw_pool_no_ca.jsonl
-# CourtListener API page cache, quota-expensive to refetch
-data/candidates/_cl_courts_cache.jsonl
+# raw API page caches, quota-expensive to refetch but large and redundant:
+# the useful digest is written alongside them (register_sources_*.jsonl)
+data/candidates/_*cache*.jsonl
 # ~100MB of extracted page text, regenerate via src/text/fetch_warc_text.py
 # from the committed warc_pointers.jsonl (no Athena spend needed)
 data/processed/labeled_text.jsonl
