@@ -61,7 +61,7 @@ In short: this classifier recognizes legal *publishers* it has training data for
 | non-top-3, in training | 214 (42) | 0.70 | 1.000 | 0.190 (n=8) |
 | never seen in training | 338 (2) | any tested | 0 | 0 |
 
-Dropping to ~0.70 for domains outside the top 3 recovers some recall on the *thin-but-known* tail (judiciary.uk, wa.gov, vermont.gov, etc.), at the cost of small sample sizes. It does nothing for domains with zero training examples, and the tier itself is a hardcoded domain lookup sitting on top of the model's score, not something the model decides, worth stating plainly given the project's own case against domain whitelisting for classification. Precision at these tiers hasn't been checked against fresh deployment-distribution sampling yet.
+Dropping to ~0.70 for domains outside the top 3 recovers some recall on the *thin-but-known* tail (judiciary.uk, wa.gov, vermont.gov, etc.), at the cost of small sample sizes. It does nothing for domains with zero training examples, and the tier itself is a hardcoded domain lookup sitting on top of the model's score, not something the model decides, worth stating plainly given the project's own case against domain whitelisting for classification. This was never validated and was dropped rather than pursued: the tier existed only to work around the URL model's zero leave-one-domain-out recall, and the text classifier reaches 0.825 there without any domain lookup.
 
 **Deployment-distribution validation** (two random, non-confidence-sorted samples from unseen raw-crawl URLs scoring ≥ 0.85, manually checked). Predates the CourtListener host-sample batch above and the resulting threshold/dataset changes, so treat as directional, not a current-model guarantee, until re-run:
 

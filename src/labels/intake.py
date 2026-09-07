@@ -13,6 +13,11 @@ with which sourcing pass produced it:
   cl        the CourtListener-derived host sample (fetch_cl_hostnames.py's
             court + legislature domains, sampled via fetch_cl_urls.py),
             scoped to data/candidates/host_sample_batch.jsonl.
+  bills     the bill-section sample: Open States supplied the part of each
+            legislature's site that holds its bills (fetch_register_sources.py),
+            and fetch_bill_urls.py drew the URLs from Common Crawl. Aimed at
+            the register gap, since bills were 3.9% of the legal class.
+            Scoped to data/candidates/bill_sample_batch.jsonl.
 
 Each batch is merged independently with the same logic: a labeled row whose
 URL isn't in that batch's own candidate file is dropped as contamination, a
@@ -159,6 +164,13 @@ BATCHES = [
         "candidates_file": "data/candidates/host_sample_batch.jsonl",
         "run_globs": ["run_2026-08-31-hostsample-w*.jsonl"],
         "skipped_globs": ["skipped_2026-08-31-hostsample-w*.jsonl"],
+        "corrections": [],
+    },
+    {
+        "source": "bills",
+        "candidates_file": "data/candidates/bill_sample_batch.jsonl",
+        "run_globs": ["run_2026-09-06-billsample-w*.jsonl"],
+        "skipped_globs": ["skipped_2026-09-06-billsample-w*.jsonl"],
         "corrections": [],
     },
 ]

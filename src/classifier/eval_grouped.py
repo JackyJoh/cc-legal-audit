@@ -44,11 +44,12 @@ import argparse
 from collections import Counter
 from urllib.parse import urlparse
 
+import numpy as np
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import precision_score, recall_score, f1_score
 
 from features import (MODES, domain_of, load_labeled, make_classifier,
-                      url_features)
+                      read_jsonl, url_features)
 
 SEED = 42
 OPERATING_THRESHOLD = 0.85
@@ -59,6 +60,32 @@ N_TOP_FEATURES = 30
 
 # set once by main() from --features; every fit in the run uses the same one
 _MAKE_VEC = url_features
+# set once by main() from --domain-weight; every fit in the run uses the same one
+_DOMAIN_WEIGHT = 0.0
+
+
+def domain_weights(labels, domains, alpha):
+    """Per-row weights that stop a few large publishers from dominating the fit.
+
+    Three publishers hold most of the legal rows, so most of what the fit
+    learns about legal text comes from those three. This gives each row a
+    weight based on how many rows its publisher contributed to its own class:
+    a publisher with 342 legal rows gets a small weight on each of them, a
+    publisher with 5 gets a large one.
+
+    alpha picks how far to go. 0 leaves every weight at 1, which is an
+    unweighted fit. 1 makes every publisher's rows sum to the same total
+    within its class, so each publisher counts once no matter its size.
+    Values in between are partial.
+
+    Weights are rescaled to average 1. Without that, the total weight changes
+    with alpha, which changes how hard the regularisation bites, and a run
+    would differ for two reasons at once instead of one.
+    """
+    counts = Counter(zip(domains, labels))
+    w = np.array([(1.0 / counts[(d, y)]) ** alpha
+                  for d, y in zip(domains, labels)], dtype=float)
+    return w * (len(w) / w.sum())
 
 
 def fit(X_train, y_train, domains_train=None):
@@ -68,7 +95,10 @@ def fit(X_train, y_train, domains_train=None):
     vec = _MAKE_VEC()
     Xv = vec.fit_transform(X_train, domains_train)
     clf = make_classifier()
-    clf.fit(Xv, y_train)
+    weights = None
+    if _DOMAIN_WEIGHT and domains_train is not None:
+        weights = domain_weights(y_train, domains_train, _DOMAIN_WEIGHT)
+    clf.fit(Xv, y_train, sample_weight=weights)
     return vec, clf
 
 
@@ -221,17 +251,40 @@ def coefficient_audit(docs, labels, urls):
 
 
 def main():
-    global _MAKE_VEC
+    global _MAKE_VEC, _DOMAIN_WEIGHT
     ap = argparse.ArgumentParser(description=__doc__.strip().split("\n\n")[0])
     ap.add_argument("--features", choices=sorted(MODES), default="url",
                     help="what the model looks at: the URL string, or the "
                          "extracted page text. Everything else is identical, "
                          "so the two runs are directly comparable.")
+    ap.add_argument("--domain-weight", type=float, default=0.0,
+                    help="how much to even out publisher influence on the "
+                         "fit, 0 to 1. 0 is an unweighted fit. 1 gives every "
+                         "publisher the same total weight within its class, "
+                         "so justice.gc.ca's 342 legal rows count no more "
+                         "than a state legislature's 5.")
+    ap.add_argument("--exclude", default=None,
+                    help="jsonl of URLs to drop before training, one 'url' "
+                         "field per row. Running with and without a batch "
+                         "measures what that batch changed, using the same "
+                         "code for both numbers so the difference cannot come "
+                         "from anything else.")
     args = ap.parse_args()
     _MAKE_VEC = MODES[args.features][0]
+    _DOMAIN_WEIGHT = args.domain_weight
 
-    print(f"--- loading (features: {args.features}) ---")
+    print(f"--- loading (features: {args.features}, "
+          f"domain-weight: {args.domain_weight}) ---")
     urls, docs, labels, domains, path = load_labeled(args.features)
+    if args.exclude:
+        drop = {r["url"] for r in read_jsonl(args.exclude)}
+        keep = [i for i, u in enumerate(urls) if u not in drop]
+        n_before = len(urls)
+        urls = [urls[i] for i in keep]
+        docs = [docs[i] for i in keep]
+        labels = [labels[i] for i in keep]
+        domains = [domains[i] for i in keep]
+        print(f"excluding {args.exclude}: dropped {n_before - len(urls)} rows")
     print(f"{len(urls)} labeled rows from {path} "
           f"({labels.count('legal')} legal, {labels.count('non_legal')} non_legal)")
 

@@ -250,24 +250,38 @@ def resolve_pointers(rows, pointers_file):
     """Stage 1: get each URL's location in the crawl archives.
 
     Three ways to get there, cheapest first: the input already carries the
-    columns, a cached pointers file exists, or Athena has to be asked.
+    columns, the cached pointers file already covers the URL, or Athena has to
+    be asked. The cache is consulted per URL rather than all-or-nothing, so
+    adding a batch of labels queries only the new URLs instead of paying to
+    re-locate every URL the file already holds.
+
+    A URL that Athena has already been asked about and did not match stays
+    missing from the cache, so it is asked about again on the next run. That
+    is the cost of keeping the file to matches only; it is small because a URL
+    that is not in the crawl is dropped from the label set anyway.
     """
     if rows and all(all(r.get(c) for c in POINTER_COLS) for r in rows):
         print("  input already carries pointers, skipping Athena")
         return {r["url"]: r for r in rows}
 
+    pointers = {}
     if pointers_file and os.path.exists(pointers_file):
         pointers = {r["url"]: r for r in load_jsonl(pointers_file)}
-        print(f"  reusing {pointers_file} ({len(pointers)} rows) - delete it to re-query")
+        print(f"  cached: {pointers_file} ({len(pointers)} rows)")
+
+    missing = [r["url"] for r in rows if r["url"] not in pointers]
+    if not missing:
+        print("  every URL already located, skipping Athena")
         return pointers
 
-    pointers = fetch_pointers([r["url"] for r in rows])
+    print(f"  {len(missing)} URL(s) not in the cache, querying the index")
+    pointers.update(fetch_pointers(missing))
     if pointers_file:
         os.makedirs(os.path.dirname(pointers_file) or ".", exist_ok=True)
         with open(pointers_file, "w", encoding="utf-8") as f:
             for url in sorted(pointers):
                 f.write(json.dumps(pointers[url]) + "\n")
-        print(f"  wrote {pointers_file}")
+        print(f"  wrote {pointers_file} ({len(pointers)} rows)")
     return pointers
 
 
