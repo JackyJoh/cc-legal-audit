@@ -169,6 +169,30 @@ def fetch_text(rows, pointers, cache_path):
     return have
 
 
+def compact(cache_path, keep_text, scores):
+    """Rewrite the text cache holding page text only for the flagged pages.
+
+    The text of a page the model rejected is never read again. It is not
+    training data, and this draw cannot be rescored once its labels are
+    trained on, because the model would have memorised them. Every unflagged
+    row keeps its url, its skip reason and its score, which is all a later run
+    needs to know the page was already fetched and what it scored.
+    """
+    before = os.path.getsize(cache_path)
+    rows = load_jsonl(cache_path)
+    with open(cache_path, "w", encoding="utf-8") as f:
+        for r in rows:
+            if r["url"] not in keep_text:
+                r = {"url": r["url"], "text": None,
+                     "skip_reason": r.get("skip_reason") or "not flagged, text dropped"}
+            if r["url"] in scores:
+                r["prob_legal"] = round(float(scores[r["url"]]), 6)
+            f.write(json.dumps(r, ensure_ascii=False) + "\n")
+    print(f"\ncompacted {cache_path}: {before / 1e6:.0f} MB -> "
+          f"{os.path.getsize(cache_path) / 1e6:.1f} MB, text kept for "
+          f"{len(keep_text)} flagged pages")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.strip().split("\n\n")[0])
     ap.add_argument("--n", type=int, default=32000,
@@ -182,6 +206,12 @@ def main():
                          "operating threshold on purpose, so the labels also "
                          "cover the band just under it and the threshold can "
                          "be chosen from the results rather than fixed first.")
+    ap.add_argument("--compact", action="store_true",
+                    help="after selecting, drop the page text of every page "
+                         "that was not flagged, keeping its url, score and "
+                         "skip reason. Nothing is refetched and the selection "
+                         "can still be redone at a lower --min-score, but the "
+                         "cache shrinks by about 99 percent.")
     ap.add_argument("--output", default=OUTPUT_FILE)
     ap.add_argument("--scores", default=SCORES_FILE)
     args = ap.parse_args()
@@ -225,6 +255,10 @@ def main():
 
     print(f"\n{len(fresh)} URLs written: {args.output}")
     print(f"scores held separately : {args.scores}")
+    if args.compact:
+        compact(TEXT_CACHE, {r["url"] for r, _ in flagged},
+                {r["url"]: p for r, p in zip(scored, probs)})
+
     print(f"\n{'band':>12}  pages")
     bands = [(0.5, 0.65), (0.65, 0.75), (0.75, 0.85), (0.85, 1.01)]
     for lo, hi in bands:
