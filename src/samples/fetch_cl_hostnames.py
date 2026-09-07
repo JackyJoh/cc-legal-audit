@@ -58,7 +58,7 @@ PAGE_SIZE = 20
 # prefix would be the federal judiciary with states cut off, not a sample.
 # Doubling this value reuses every cached page, since the strided plan for
 # 2N contains the plan for N. Set to None for a full pull.
-SAMPLE_PAGES = 28
+SAMPLE_PAGES = 84
 
 # Closed enumeration: all 50 US states have exactly one official legislature
 # site, not a curated list, so there's no recall gap by construction.
@@ -108,6 +108,14 @@ def get_json(url, token):
             with urllib.request.urlopen(req, timeout=60) as resp:
                 return json.load(resp)
         except urllib.error.HTTPError as exc:
+            if exc.code == 502 or exc.code == 503 or exc.code == 504:
+                # transient gateway error, nothing to do with rate limiting;
+                # same backoff as a network-level failure below
+                if attempt == 4:
+                    raise
+                print(f"  retry in {2 ** attempt}s after HTTP {exc.code}")
+                time.sleep(2 ** attempt)
+                continue
             if exc.code != 429 or attempt == 4:
                 raise
             wait = float(exc.headers.get("retry-after", MIN_INTERVAL)) + 1
