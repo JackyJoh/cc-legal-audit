@@ -44,12 +44,11 @@ import argparse
 from collections import Counter
 from urllib.parse import urlparse
 
-import numpy as np
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import precision_score, recall_score, f1_score
 
-from features import (MODES, domain_of, load_labeled, make_classifier,
-                      read_jsonl, url_features)
+from features import (MODES, domain_of, domain_weights, load_labeled,
+                      make_classifier, read_jsonl, url_features)
 
 SEED = 42
 OPERATING_THRESHOLD = 0.85
@@ -64,30 +63,6 @@ _MAKE_VEC = url_features
 _DOMAIN_WEIGHT = 0.0
 
 
-def domain_weights(labels, domains, alpha):
-    """Per-row weights that stop a few large publishers from dominating the fit.
-
-    Three publishers hold most of the legal rows, so most of what the fit
-    learns about legal text comes from those three. This gives each row a
-    weight based on how many rows its publisher contributed to its own class:
-    a publisher with 342 legal rows gets a small weight on each of them, a
-    publisher with 5 gets a large one.
-
-    alpha picks how far to go. 0 leaves every weight at 1, which is an
-    unweighted fit. 1 makes every publisher's rows sum to the same total
-    within its class, so each publisher counts once no matter its size.
-    Values in between are partial.
-
-    Weights are rescaled to average 1. Without that, the total weight changes
-    with alpha, which changes how hard the regularisation bites, and a run
-    would differ for two reasons at once instead of one.
-    """
-    counts = Counter(zip(domains, labels))
-    w = np.array([(1.0 / counts[(d, y)]) ** alpha
-                  for d, y in zip(domains, labels)], dtype=float)
-    return w * (len(w) / w.sum())
-
-
 def fit(X_train, y_train, domains_train=None):
     """domains_train is the training fold's domains, used by the domain-purity
     filter. It must never include a held-out publisher's rows: that would let
@@ -95,9 +70,8 @@ def fit(X_train, y_train, domains_train=None):
     vec = _MAKE_VEC()
     Xv = vec.fit_transform(X_train, domains_train)
     clf = make_classifier()
-    weights = None
-    if _DOMAIN_WEIGHT and domains_train is not None:
-        weights = domain_weights(y_train, domains_train, _DOMAIN_WEIGHT)
+    weights = (domain_weights(y_train, domains_train, _DOMAIN_WEIGHT)
+               if domains_train is not None else None)
     clf.fit(Xv, y_train, sample_weight=weights)
     return vec, clf
 

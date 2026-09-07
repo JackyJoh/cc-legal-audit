@@ -18,6 +18,13 @@ with which sourcing pass produced it:
             and fetch_bill_urls.py drew the URLs from Common Crawl. Aimed at
             the register gap, since bills were 3.9% of the legal class.
             Scoped to data/candidates/bill_sample_batch.jsonl.
+  flagged   the pages a trained model called legal on a uniform random draw
+            of the crawl (fetch_flagged_urls.py). The other four passes all
+            sample where law is expected to be, so their negatives are near
+            misses from legal publishers. This one samples the open web the
+            model runs on, which makes its non_legal rows the only negatives
+            drawn from the distribution the model actually fails on. Scoped
+            to data/candidates/flagged_sample_batch.jsonl.
 
 Each batch is merged independently with the same logic: a labeled row whose
 URL isn't in that batch's own candidate file is dropped as contamination, a
@@ -172,6 +179,17 @@ BATCHES = [
         "run_globs": ["run_2026-09-06-billsample-w*.jsonl"],
         "skipped_globs": ["skipped_2026-09-06-billsample-w*.jsonl"],
         "corrections": [],
+    },
+    {
+        "source": "flagged",
+        "candidates_file": "data/candidates/flagged_sample_batch.jsonl",
+        "run_globs": ["run_2026-09-07-flagged-w*.jsonl"],
+        "skipped_globs": ["skipped_2026-09-07-flagged-w*.jsonl"],
+        # law.cornell.edu definition popups score high enough to be flagged,
+        # so this batch pulls them the same way the earlier two did
+        "corrections": [
+            (is_definition_popup, DEFINITION_POPUP_NOTE),
+        ],
     },
 ]
 

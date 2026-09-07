@@ -37,7 +37,8 @@ import sklearn
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, precision_score, recall_score, f1_score
 
-from features import (MODES, MIN_DOMAIN_DF, load_labeled, make_classifier,
+from features import (MODES, MIN_DOMAIN_DF, domain_weights, load_labeled,
+                      make_classifier,
                       read_jsonl)
 
 SEED = 42
@@ -74,12 +75,12 @@ def extractors_used(mode, path):
                    if r.get("text") and r.get("extractor")})
 
 
-def fit(mode, docs, labels, domains):
+def fit(mode, docs, labels, domains, alpha=0.0):
     make_vec, _, _ = MODES[mode]
     vec = make_vec()
     Xv = vec.fit_transform(docs, domains)
     clf = make_classifier()
-    clf.fit(Xv, labels)
+    clf.fit(Xv, labels, sample_weight=domain_weights(labels, domains, alpha))
     return vec, clf
 
 
@@ -88,14 +89,14 @@ def legal_probs(vec, clf, docs):
     return clf.predict_proba(vec.transform(docs))[:, idx]
 
 
-def report_holdout(mode, docs, labels, domains):
+def report_holdout(mode, docs, labels, domains, alpha=0.0):
     """Fit on 80%, score the held-out 20%. Publishers appear on both sides of
     this split, so it overstates performance on unseen sites. eval_grouped.py
     is the script that measures that gap."""
     X_tr, X_te, y_tr, y_te, d_tr, _ = train_test_split(
         docs, labels, domains, test_size=TEST_SIZE, random_state=SEED,
         stratify=labels)
-    vec, clf = fit(mode, X_tr, y_tr, d_tr)
+    vec, clf = fit(mode, X_tr, y_tr, d_tr, alpha)
     probs = legal_probs(vec, clf, X_te)
     y_bin = [1 if y == "legal" else 0 for y in y_te]
 
@@ -123,6 +124,14 @@ def main():
                     help="operating threshold recorded in the bundle "
                          "(default: 0.85 for url, 0.60 for text, both "
                          "provisional pending the deployment sample)")
+    ap.add_argument("--domain-weight", type=float, default=0.5,
+                    help="how much to even out publisher influence on the "
+                         "fit, 0 to 1. 0 is an unweighted fit, where "
+                         "justice.gc.ca's 342 legal rows outvote a state "
+                         "legislature's 5. 1 gives every publisher the same "
+                         "total weight within its class. 0.5 is the default: "
+                         "it lifts leave-one-domain-out recall from 0.399 to "
+                         "0.475, where 1.0 overcorrects back to 0.438.")
     ap.add_argument("--out", default=None,
                     help="where to write the bundle "
                          "(default: models/<features>_clf.joblib)")
@@ -138,10 +147,10 @@ def main():
           f"({labels.count('legal')} legal, {labels.count('non_legal')} non_legal) "
           f"across {len(set(domains))} registered domains")
 
-    report_holdout(mode, docs, labels, domains)
+    report_holdout(mode, docs, labels, domains, args.domain_weight)
 
     print(f"\n--- refitting on all {len(docs)} rows for the saved model ---")
-    vec, clf = fit(mode, docs, labels, domains)
+    vec, clf = fit(mode, docs, labels, domains, args.domain_weight)
     n_features = len(vec.get_feature_names_out())
     print(f"vocabulary: {n_features} features after the domain purity filter "
           f"(min_domain_df={MIN_DOMAIN_DF})")
@@ -160,6 +169,7 @@ def main():
             "n_domains": len(set(domains)),
             "n_features": n_features,
             "min_domain_df": MIN_DOMAIN_DF,
+            "domain_weight": args.domain_weight,
             "extractors": extractors_used(mode, path),
             "seed": SEED,
             "sklearn": sklearn.__version__,

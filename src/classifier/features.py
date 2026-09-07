@@ -18,6 +18,7 @@ training fold only, so a held-out publisher never influences the feature set.
 """
 import json
 import os
+from collections import Counter
 from urllib.parse import urlparse
 
 import joblib
@@ -117,6 +118,36 @@ def make_classifier():
     optimises the majority class and the threshold sweep has nothing to
     trade off."""
     return LogisticRegression(class_weight="balanced", max_iter=2000)
+
+
+def domain_weights(labels, domains, alpha):
+    """Per-row weights that stop a few large publishers from dominating a fit.
+
+    Three publishers hold most of the legal rows, so most of what a fit learns
+    about legal text comes from those three. Each row gets a weight based on
+    how many rows its publisher contributed to its own class: a publisher with
+    342 legal rows gets a small weight on each of them, a publisher with 5
+    gets a large one.
+
+    alpha picks how far to go. 0 leaves every weight at 1, which is an
+    unweighted fit. 1 makes every publisher's rows sum to the same total
+    within its class, so each publisher counts once no matter its size.
+    Values in between are partial, and 0.5 works out to the square root of
+    the row count.
+
+    Weights are rescaled to average 1. Without that the total weight changes
+    with alpha, which changes how hard the regularisation bites, and two runs
+    would differ for two reasons at once instead of one.
+
+    Returns None at alpha 0 so callers can pass the result straight to
+    sklearn's sample_weight, where None means unweighted.
+    """
+    if not alpha:
+        return None
+    counts = Counter(zip(domains, labels))
+    w = np.array([(1.0 / counts[(d, y)]) ** alpha
+                  for d, y in zip(domains, labels)], dtype=float)
+    return w * (len(w) / w.sum())
 
 
 def domain_of(url):
