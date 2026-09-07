@@ -231,12 +231,15 @@ def main():
                     help="what the model looks at: the URL string, or the "
                          "extracted page text. Everything else is identical, "
                          "so the two runs are directly comparable.")
-    ap.add_argument("--domain-weight", type=float, default=0.0,
+    ap.add_argument("--domain-weight", type=float, default=0.5,
                     help="how much to even out publisher influence on the "
                          "fit, 0 to 1. 0 is an unweighted fit. 1 gives every "
                          "publisher the same total weight within its class, "
                          "so justice.gc.ca's 342 legal rows count no more "
-                         "than a state legislature's 5.")
+                         "than a state legislature's 5. The default matches "
+                         "train_classifier.py, so a run with no flag measures "
+                         "the model that actually ships; a mismatch here "
+                         "reports numbers for a model nobody deploys.")
     ap.add_argument("--exclude", default=None,
                     help="jsonl of URLs to drop before training, one 'url' "
                          "field per row. Running with and without a batch "

@@ -134,19 +134,141 @@ The coefficient audit shows the mechanism: Justice Canada furniture is demoted a
 
 **The concentration test passes.** 18 flagged pages across 15 publishers, against the URL model's 24 flagged pages that were all justice.gc.ca. Hits include virginia.gov, cornell.edu, justice.gc.ca, gazette.gc.ca, wi.gov, ecfr.io, parliament.uk and tcilii.org. It also flagged a Privy Council judgment off 28 opinion labels total, the only evidence so far on whether the missing opinion register is fatal.
 
-**Base rate revision.** An unverified read of the 18 flagged pages puts about 8 as genuine primary legal text (~44%). Since precision cannot exceed `base rate / flag rate`, that implies a base rate near **0.3%**, not the 0.1% used in earlier projections. Every precision projection here scales with it, and it is an eyeball of 18 URLs, not a measurement.
-
-With base rate 0.3% and grouped-split recall near 0.6, the flag rate a target precision allows is `base rate x recall / target precision`:
-
-| target precision | 90% | 80% | 70% | 50% |
-|---|---|---|---|---|
-| flag rate budget | 0.20% | 0.23% | 0.26% | 0.36% |
-
-The model runs at 0.386%, roughly double the budget for 90%.
+This section's precision estimates were superseded by the measurement below, which replaced an eyeball of 18 URLs with 152 labels.
 
 **The dominant false positive is one nameable class:** legal-sounding text written by a private party. A purchase order's terms and conditions on `lifesafetyservices.com` scored 0.957, second-highest of all 4662 pages. The rest are terms of service, privacy policies, institutional codes of conduct and commercial summaries of state law. Behind that: government pages that are not law (agency tool catalogs, facility inspection records) and Cornell LII definition popups, the family already corrected twice in `intake.py`. The definition excludes all of these on its first half, which asks who published the page rather than how it reads, but no training negative teaches that, because every earlier batch sampled from publishers of law.
 
 **Caveat.** `raw_pool.jsonl` predates the sampler fix noted under `fetch_candidate_urls.py`, so it is not a clean uniform draw. Directional, not publication-grade.
+
+### Deployment precision, measured (2026-09-07)
+
+32,000 URLs drawn uniformly from the pool, every page fetched and scored, and
+every flagged page kept and hand-labeled by the labeling agent. 169 candidates,
+152 labeled, 17 skipped: **27 legal, 125 non_legal.**
+
+| threshold | flagged | legal | precision | 95% CI |
+|---|---|---|---|---|
+| 0.50 | 152 | 27 | 0.178 | [0.125, 0.246] |
+| **0.60** | 93 | 25 | **0.269** | [0.189, 0.367] |
+| 0.75 | 42 | 17 | 0.405 | [0.270, 0.555] |
+| 0.85 | 18 | 11 | 0.611 | [0.386, 0.797] |
+| 0.90 | 12 | 8 | 0.667 | [0.391, 0.862] |
+
+Precision rises monotonically with score, so the model **ranks** correctly. What
+is wrong is where the decision boundary falls. No threshold is usable: 0.90
+reaches only 0.667 and flags 12 pages in 32,000, which scales to roughly 220
+documents from the whole pool.
+
+**Base rate: 0.12%.** 27 legal found, grouped-split recall 0.741 at t=0.50, so
+about 36 legal pages among the ~29,800 with text. The earlier 0.3% estimate came
+from eyeballing 18 URLs and was wrong; the original 0.1% assumption was right.
+
+**Why no amount of hard-negative mining closes this.** Solving
+`precision = (base x recall) / (base x recall + (1-base) x FPR)` at base 0.12%
+and recall 0.5 gives the false-positive rate each target needs:
+
+| target precision | required FPR | vs. measured 0.227% |
+|---|---|---|
+| 80% | 0.015% | 15x reduction |
+| 90% | 0.0067% | 34x reduction |
+
+**The false positives are one class:** legal-sounding text written by a private
+party. Top scorers were an SEC filing exhibit (a contract) at 0.976, a tax-treaty
+commentary site at 0.960, a purchase-order terms page at 0.957, a news article
+about a city ordinance at 0.923, and a law firm article at 0.871. Behind those:
+terms of service, privacy policies, institutional codes of conduct, auction
+catalogue terms, and Cornell LII definition popups. The LEGAL definition excludes
+all of them on its first half, which asks who published the page rather than how
+it reads, but no training negative taught that, because every earlier batch
+sampled from publishers of law.
+
+### Retraining on the mined negatives
+
+The 152 labels went back into training (one retrain, by design). Label set:
+4,490 rows, 1,014 legal / 3,476 non_legal, 42 legal-bearing domains.
+
+Measured with `--exclude` so both sides run identical code, on the 21 publishers
+present in both, at `--domain-weight 0.0`:
+
+| | macro LODO recall |
+|---|---|
+| without flagged batch | 0.399 |
+| with flagged batch | 0.375 |
+
+Eight publishers fell, thirteen held, none rose. The headline macro reads
+0.399 to 0.398 only because `wisconsin.gov` entered the table at 0.889 and masked
+the decline. Grouped-split precision improved at the low thresholds (0.50:
+0.457 to 0.492; 0.65: 0.529 to 0.567).
+
+That is what hard negatives do: the model learned that legal-sounding text is
+often not law and became more cautious, buying precision with recall. The
+question was only ever whether it bought enough.
+
+**It did not.** Rescoring the same 152 pages with the retrained model gives 0.711
+precision at t=0.60, but those pages are now in its training set, so that is a
+memorisation ceiling rather than a measurement, and real precision on unseen
+pages is strictly below it. Even with them in training the model still scores the
+tax-treaty site at 0.854, the SEC contract exhibit at 0.829 and the purchase-order
+terms at 0.715, which suggests the class is not linearly separable from primary
+law in this feature space.
+
+### Decision: source the legal bucket by publisher, classify page type within it
+
+Open-web detection fails for one reason, and it is not the model. At a 0.12% base
+rate, Bayes requires a false-positive rate near 1e-4 before precision can reach
+0.9. Restricting the candidate pool to legal-publisher domains removes that
+problem instead of fighting it.
+
+| | open-web pool | authority-domain pool |
+|---|---|---|
+| base rate | 0.12% | 23.3% |
+| measured precision @0.60 | 0.269 | see below |
+
+**The authority-domain pool has a 23.3% base rate, which is the label set's own
+base rate.** That is what makes the held-out random-split numbers valid there
+with no base-rate translation, which is the step that destroyed every projection
+on the open-web pool:
+
+| threshold | precision | recall |
+|---|---|---|
+| 0.65 | 0.828 | 0.783 |
+| 0.75 | 0.937 | 0.586 |
+| 0.85 | 0.964 | 0.394 |
+
+Of a uniform 32,000-page crawl draw, only 119 pages (0.37%) sit on an authority
+domain. The filter discards 99.6% of the crawl and raises the base rate roughly
+200-fold.
+
+**This is not the domain whitelisting this project rejected.** That objection was
+to a whitelist as a *classifier*, because a hostname cannot tell a statute from a
+homepage or a docket index, and it still stands. Using enumerated publishers to
+*source* a corpus is a different decision, and the classifier still does the work
+the host list cannot: only about 9% of pages captured inside a legislature's own
+bill section are bill text. Sourcing narrows the haystack; the classifier finds
+the needle.
+
+**Both buckets remain Common Crawl.** The authority supplies hostnames only,
+never URLs or documents. Every page is a CC capture through the same WARC fetch,
+the same pinned trafilatura settings and the same Gopher filters, exactly as
+`fetch_cl_urls.py` and `fetch_bill_urls.py` already work. The general-web bucket
+should be drawn by the same host-level procedure over random hosts, so both sides
+of the comparison are defined the same way.
+
+**What this costs, and what has to be said in the write-up.** The corpus becomes
+"legal text from known legal publishers," not "all legal text in Common Crawl."
+Three claims are given up: what fraction of the crawl is legal, representativeness
+across the whole web, and anything about legal text hosted off publisher domains.
+Corpus composition also stops being defensible by appeal to uniform sampling and
+becomes a choice: 69% statute, 45% regulation, 3.9% bills, 2.9% opinions. The
+unsourced opinion register matters more under this plan than it did before, and
+entropy should be reported per register so a low figure cannot be dismissed as a
+composition artifact.
+
+**The classifier work is not discarded.** It produced a measured negative result:
+open-web legal document detection at a 0.12% base rate needs a false-positive
+rate near 1e-4, and TF-IDF plus logistic regression on 1,014 positives reaches
+0.227%, giving 27% precision at the operating threshold. That result is what
+justifies the sourcing decision.
 
 ### Sourcing the missing registers
 
@@ -160,24 +282,30 @@ A PDF address still counts as a signpost, since it says which section a publishe
 
 ## Currently underway
 
-**A 32,000-page crawl draw for a deployment-precision measurement** (`src/samples/fetch_flagged_urls.py`). At a 0.62% flag rate that yields roughly 200 flagged pages, enough to measure precision to about plus or minus 6 points. Every flagged page from the draw is kept, so the labels are a fair sample of what the model selects.
-
-The same labels do double duty: each flagged page returning non_legal is a training negative from the distribution the model actually fails on, which no earlier batch could supply. That is hard negative mining, not leakage, since the pool is unlabeled and the model chooses only what gets labeled, never what the labels say. Three conditions keep it defensible:
-
-1. Take every flagged page from a uniform draw, not a chosen subset, so precision stays unbiased. Done by construction.
-2. Keep scores out of the labeling batch so the labeler cannot anchor on them. `flagged_sample_batch.jsonl` holds URLs, `flagged_sample_scores.jsonl` holds scores, which are needed afterwards for precision-per-threshold and cannot be recovered later because retraining overwrites the model that made the selection.
-3. Measure final precision on a fresh draw scored by the retrained model, never on the pages the negatives came from. **Not yet run.**
-
-Two things the write-up must state: the training negatives become enriched for model failures by construction, so the label set stops being a random sample of the web and base rates cannot be estimated from it; and mining false positives buys precision at recall's expense, deliberately.
-
-Athena cost for the draw was $1.67 across 12 partition scans, cached, so reruns are free.
+**Defining the authority domain list.** `fetch_cl_hostnames.py` currently holds
+110 hostnames across 61 registered domains: 60 courts sampled from the
+CourtListener courts API plus a closed enumeration of all 50 state legislature
+sites. The 60 is a *strided sample*, taken because the API's hourly cap makes a
+full pull slow. For the pivot the list stops being a sampling frame and becomes
+the corpus definition, so it needs the complete pull (`SAMPLE_PAGES = None`).
+`register_sources_bills.jsonl` adds 49 legislature sites with the specific path
+sections where bills live, which is a tighter second filter.
 
 **Open questions.**
 
-- Opinions remain unsourced (see above). Revisit only if leave-one-domain-out or measured precision turns out poor.
-- `OPERATING_THRESHOLD` in `eval_grouped.py` is hardcoded to 0.85, the URL model's operating point, so every leave-one-domain-out figure above is measured at a threshold the text model does not run at. Before/after comparisons are unaffected, both sides use the same constant.
-- Whether to include PDFs in either bucket, which needs Common Crawl payload truncation measured first.
-- Document-shape features (numbered-subsection density, length, digit density) are untried and target the exact confusion the bills batch exposed: a page discussing a bill against the bill's own text.
+- The general-web bucket should be redrawn by host to match how the legal bucket
+  is defined, rather than by uniform page sampling.
+- Opinions remain unsourced (see above), and matter more under this plan.
+- `OPERATING_THRESHOLD` in `eval_grouped.py` is hardcoded to 0.85, the URL
+  model's operating point, so every leave-one-domain-out figure above is measured
+  at a threshold the text model does not run at. Before/after comparisons are
+  unaffected, both sides use the same constant.
+- Whether to include PDFs in either bucket, which needs Common Crawl payload
+  truncation measured first.
+- Precision inside authority domains has not been measured on held-out data. The
+  random-split figures above transfer on a base-rate argument, but a labeled draw
+  from the domain-filtered pool would measure it directly and is far cheaper than
+  the open-web equivalent, since the base rate is 200x higher.
 
 ## Code
 
