@@ -10,7 +10,7 @@ Standard LLM pre-training pipelines apply a uniform Jaccard similarity threshold
 
 1. Sample a Common Crawl snapshot (CC-MAIN-2026-12)
 2. Apply fixed preprocessing: language filtering, quality heuristics, repetition removal (Gopher defaults held constant)
-3. Classify documents into legal and general web subsets via URL tokenization
+3. Source the legal bucket from authority-enumerated legal publishers, then classify page type within it on page text; draw the general bucket from depth-matched random hosts
 4. Measure baseline topic entropy (BERTopic + Shannon entropy) per domain before deduplication
 5. Run MinHash fuzzy dedup at Jaccard thresholds 0.6, 0.7, 0.8, 0.9
 6. Re-measure topic entropy per domain after each threshold
@@ -134,17 +134,38 @@ An outside authority says where each publisher files documents; Common Crawl sup
 
 PDFs remain unsettled as *documents*: a second extractor is needed, and PDF-to-text differs from HTML-to-text in hyphenation and page furniture, which is exactly the surface variation 13-gram MinHash responds to. Doing it on the legal side only would confound the headline comparison.
 
-## Currently underway
+### The authority domain list
 
-**Defining the authority domain list.** `court_hostnames.jsonl` holds 110 hostnames across 61 registered domains: 60 courts from the CourtListener API plus a closed enumeration of all 50 state legislature sites. The 60 is a strided sample taken to stay under the API's hourly cap; for the pivot the list becomes the corpus definition, so it needs the full pull (`SAMPLE_PAGES = None`). `register_sources_bills.jsonl` adds 49 legislature sites with the path sections where bills live, a tighter second filter.
+`court_hostnames.jsonl` holds **342 hostnames across 120 registered domains**: 292 courts recovered from the CourtListener API page cache plus a closed enumeration of all 50 state legislature sites. `build_legal_domains.py` merges these with the Open States bill sections into `legal_domains.jsonl`, **347 domains**, each carrying the sampling unit correct for it.
+
+Courts and legislatures need different units. A state legislature is its own registrant, so `codes.ohio.gov` and `www.legislature.ohio.gov` are one publisher and merge at the registered-domain level. Federal courts are the opposite: 78 of the CourtListener hostnames share `uscourts.gov`, so collapsing by registered domain would merge 86 separate courts into one entry. Courts stay at hostname granularity, legislatures merge at registered domain.
+
+CourtListener's `url` field is wrong often enough to need a denylist: it points the NY Surrogate's Court at Wikipedia, the Emergency Court of Appeals at Wikimedia, a bankruptcy court at the FJC's own site, and a defunct Tennessee court at the genealogy service FamilySearch, which alone carried enough captures to rank in the top 40 legal domains.
+
+`count_domain_captures.py` measures real crawl depth per domain: **286 of 347 domains appear in CC-MAIN-2026-12, 614,044 eligible pages**. The 61 with zero captures are almost all state courts, split between dead legacy `state.XX.us` hosts and live sites that block Common Crawl in robots.txt.
+
+### Deployment precision, final (2026-09-08) — classifier closed
+
+250 pages drawn from inside the legal domains and hand-labeled, in three score strata so the band above 0.85 gets a usable read regardless of how the pool skews. Each label is weighted by its stratum's frame size; intervals are a stratified bootstrap. `precision_report.py` produces all of it.
+
+| t | precision | contamination | recall | yield |
+|---|---|---|---|---|
+| 0.60 | 0.911 | 8.9% | 0.770 | 30.6% |
+| **0.75** | **0.953** | **4.7%** | **0.602** | **22.9%** |
+| 0.85 | 0.980 | 2.0% | 0.418 | 15.4% |
+
+**Base rate inside these domains is 36.2%**, against 0.12% on the open web, so the pivot changed the problem by roughly 300x. Measured precision beats the grouped-split estimate (0.900 at 0.85) because deployment is in-domain while the grouped split holds whole publishers out.
+
+**Operating threshold: 0.75.** At scale that is 140,405 pages kept, **133,859 legal documents**, 6,546 false positives, and a false-positive rate of 1.67% of the 391,846 non-legal pages. Contamination is the number for corpus quality, FPR the number for filter behaviour.
+
+**The misses are short documents, not a random slice.** Legal pages at or above 0.85 run a median 1,108 words with 3% under 200; legal pages below it run a median 238 words with 37% under 200, the same length profile as the non-legal pages. At the margin this is partly a length detector, the short-document failure first seen on `cornell.edu`. Short and long documents carry different near-duplicate structure, so a threshold that preferentially drops short legal documents biases the corpus toward long ones, and that lands on ΔH. It gets worse as the threshold rises, which is a second argument for 0.75 over 0.85, and it belongs in limitations as a real confound.
 
 **Open questions.**
 
-- Redraw the general-web bucket by host, to match how the legal bucket is defined.
-- Precision inside authority domains is untested on held-out data. The split figures transfer on a base-rate argument, but a labeled draw would measure it, far cheaper than the open-web equivalent at 200x the base rate.
 - Opinions remain unsourced, and matter more under this plan.
-- `OPERATING_THRESHOLD` in `eval_grouped.py` is hardcoded to 0.85, the URL model's operating point, so LODO figures above are measured at a threshold the text model does not run at. Before/after comparisons are unaffected.
-- Whether to include PDFs, which needs CC payload truncation measured first.
+- `OPERATING_THRESHOLD` in `eval_grouped.py` is hardcoded to 0.85, so its LODO figures are measured at a threshold the model does not run at. Before/after comparisons are unaffected.
+- `register_sources_bills.jsonl` was drawn at `--pages 3`, 60 bills per state.
+- Corpus construction, sampling and the dedup sweep design are the next phase.
 
 ## Code
 
@@ -162,8 +183,11 @@ src/
 - `build_label_batch.py`: Mixes prefilter hits, random URLs and synthetic homepage negatives into `candidates.jsonl`.
 - `fetch_targeted_urls.py`: Error-driven pull at the domains and URL shapes the false-negative analysis flagged.
 - `fetch_raw_pool_no_ca.py`: Second pull excluding `.ca`, for a validation sample from a different slice of the crawl.
-- `fetch_cl_hostnames.py`: Court hostnames from the CourtListener API plus all 50 state legislature sites. Writes `court_hostnames.jsonl`.
+- `fetch_cl_hostnames.py`: Court hostnames from the CourtListener API plus all 50 state legislature sites. Pages are cached to disk, so a run that hits the hourly cap or crashes resumes free. Writes `court_hostnames.jsonl`.
+- `build_legal_domains.py`: Merges the court and legislature host lists into `legal_domains.jsonl`, each row carrying the sampling unit correct for it, host for courts and registered domain for legislatures.
 - `count_domain_captures.py`: Ranks legal domains (courts and legislatures, from `legal_domains.jsonl`) by actual crawl depth, since docket/bill-record size and crawl coverage are uncorrelated.
+- `fetch_legal_pool.py`: Uniform random sample of eligible pages across the legal domains, the pool the precision sample is drawn from. Ordered by seeded hash, so a larger `--n` is a superset of a smaller one.
+- `fetch_precision_sample.py`: The hand-labeling batch, drawn as three score strata so the band above 0.85 gets a usable read whatever the pool's skew. Batch, scores and per-stratum frame sizes go to separate files; the labeling agent sees only the batch.
 - `fetch_cl_urls.py`: Per-publisher URL sample from Common Crawl for those hostnames. Writes `host_sample_batch.jsonl`.
 - `fetch_register_sources.py`: Asks Open States where each of the 50 states files its bills, reduced to site plus wildcard path (`/li/%/measures/%`). Touches neither Common Crawl nor the documents.
 - `fetch_bill_urls.py`: Turns those sections into a batch. One Athena query sorts every captured page `in` or `out` by path match, drops sites under 200 captured pages, takes a fixed quota each so a deeply-crawled state cannot dominate.
@@ -182,6 +206,7 @@ src/
 - `score.py`: Scores any jsonl with a saved bundle, reports flag rate per threshold. Refuses on extractor mismatch.
 - `threshold_sweep_full.py`: Full sweep 0.05-0.95 with tp/fp/fn to CSV.
 - `eval_grouped.py`: Diagnostic, not shipped metrics. Random split vs grouped (whole domains held out) vs leave-one-domain-out, plus a coefficient audit. `--exclude` drops a batch before training, so running with and without it measures what that batch changed under identical code.
+- `precision_report.py`: The shipped metric. Joins the hand labels to their scores, weights each label by its stratum's frame size, and reports precision, contamination, recall and yield by threshold with bootstrap intervals, then projects them onto every eligible page in the crawl.
 
 **`src/validation/`**
 - `sample_deployment_validation.py`: Scores a pool, draws a uniform random sample of what clears the threshold for hand-labeling. Random rather than confidence-sorted, since the top of the ranking would flatter the estimate.
