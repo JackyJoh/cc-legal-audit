@@ -12,7 +12,7 @@ Two draws per publisher: K_A random URLs (hard negatives, e.g. nav, listing,
 and admin pages) and one URL per distinct two-segment path prefix up to K_B,
 so a small section isn't drowned out by a high-fanout template like a
 paginated bill-status page. Sampling uses a seeded hash for reproducibility.
-Eligibility (HTML mime types, English) matches count_cl_captures.py.
+Eligibility (HTML mime types, English) matches count_domain_captures.py.
 
 Output: {"url", "hint"} per line, the shape intake.py and the labeling
 prompt expect. hint names the stream, not the publisher, so the agent can't
@@ -38,7 +38,7 @@ BATCH_ID     = "host-sample-v1"
 # capture distribution: lowering it adds publishers that are almost all
 # uscourts.gov siblings, which collapse into a single registered domain and so
 # add labeling cost without adding a held-out group. See the threshold table
-# printed by count_cl_captures.py.
+# printed by count_domain_captures.py.
 MIN_ELIGIBLE = 200
 
 K_A = 3    # uniform over URLs - hard negatives, kept small on purpose
@@ -54,7 +54,7 @@ EXISTING_BATCHES = [
     "data/candidates/targeted_batch.jsonl",
 ]
 
-# Both must match count_cl_captures.py. xhtml is HTML - matching text/html
+# Both must match count_domain_captures.py. xhtml is HTML - matching text/html
 # alone drops whole statute publishers.
 HTML_MIMES = ("'text/html'", "'application/xhtml+xml'")
 SQL_FAMILY = r"regexp_replace(url_host_name, '^www\.', '')"

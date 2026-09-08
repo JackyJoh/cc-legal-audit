@@ -163,7 +163,7 @@ src/
 - `fetch_targeted_urls.py`: Error-driven pull at the domains and URL shapes the false-negative analysis flagged.
 - `fetch_raw_pool_no_ca.py`: Second pull excluding `.ca`, for a validation sample from a different slice of the crawl.
 - `fetch_cl_hostnames.py`: Court hostnames from the CourtListener API plus all 50 state legislature sites. Writes `court_hostnames.jsonl`.
-- `count_cl_captures.py`: Ranks those hostnames by actual crawl depth, since docket size and crawl coverage are uncorrelated.
+- `count_domain_captures.py`: Ranks legal domains (courts and legislatures, from `legal_domains.jsonl`) by actual crawl depth, since docket/bill-record size and crawl coverage are uncorrelated.
 - `fetch_cl_urls.py`: Per-publisher URL sample from Common Crawl for those hostnames. Writes `host_sample_batch.jsonl`.
 - `fetch_register_sources.py`: Asks Open States where each of the 50 states files its bills, reduced to site plus wildcard path (`/li/%/measures/%`). Touches neither Common Crawl nor the documents.
 - `fetch_bill_urls.py`: Turns those sections into a batch. One Athena query sorts every captured page `in` or `out` by path match, drops sites under 200 captured pages, takes a fixed quota each so a deeply-crawled state cannot dominate.

@@ -18,8 +18,39 @@ USD_PER_TB  = 5.0
 _TB         = 1024 ** 4
 
 
+# S3 rate limiting and transient engine faults come back as a FAILED query
+# carrying a reason string, not as a boto3 error, so boto3's own retry layer
+# never sees them and they can only be recognized by matching the reason. A
+# retry re-scans the data and so is charged again, which is why the list stays
+# narrow: only faults that clear on their own. Sweeping several crawls back to
+# back is the usual way to trip the throttling one.
+TRANSIENT_REASONS = (
+    "HIVE_S3_THROTTLING",
+    "SlowDown",
+    "HIVE_CANNOT_OPEN_SPLIT",
+    "INTERNAL_ERROR",
+)
+MAX_ATTEMPTS = 4
+
+
 def client():
     return boto3.client("athena", region_name=REGION)
+
+
+def _execute(athena, sql, database, output_location, poll):
+    """Start one query and poll it to a terminal state."""
+    resp = athena.start_query_execution(
+        QueryString=sql,
+        QueryExecutionContext={"Database": database},
+        ResultConfiguration={"OutputLocation": output_location},
+    )
+    qid = resp["QueryExecutionId"]
+    while True:
+        execution = athena.get_query_execution(QueryExecutionId=qid)["QueryExecution"]
+        state = execution["Status"]["State"]
+        if state in ("SUCCEEDED", "FAILED", "CANCELLED"):
+            return qid, state, execution
+        time.sleep(poll)
 
 
 def run_query(athena, sql, database=ATHENA_DB, poll=2.0, quiet=False):
@@ -28,25 +59,22 @@ def run_query(athena, sql, database=ATHENA_DB, poll=2.0, quiet=False):
     rows is a list of dicts keyed by the result column names. Null cells come
     back as None rather than being silently dropped, which matters because
     content_languages and content_mime_detected are both nullable.
+
+    Transient AWS-side failures are retried with backoff. A cancelled query and
+    a broken query both fail immediately, since neither improves on a retry.
     """
     output_location = os.environ["ATHENA_OUTPUT_LOCATION"]
-    resp = athena.start_query_execution(
-        QueryString=sql,
-        QueryExecutionContext={"Database": database},
-        ResultConfiguration={"OutputLocation": output_location},
-    )
-    qid = resp["QueryExecutionId"]
 
-    while True:
-        execution = athena.get_query_execution(QueryExecutionId=qid)["QueryExecution"]
-        state = execution["Status"]["State"]
-        if state in ("SUCCEEDED", "FAILED", "CANCELLED"):
+    for attempt in range(MAX_ATTEMPTS):
+        qid, state, execution = _execute(athena, sql, database, output_location, poll)
+        if state == "SUCCEEDED":
             break
-        time.sleep(poll)
-
-    if state != "SUCCEEDED":
         reason = execution["Status"].get("StateChangeReason", "no reason given")
-        raise RuntimeError(f"Athena query {state} ({qid}): {reason}")
+        if attempt == MAX_ATTEMPTS - 1 or not any(r in reason for r in TRANSIENT_REASONS):
+            raise RuntimeError(f"Athena query {state} ({qid}): {reason}")
+        wait = 10 * 2 ** attempt
+        print(f"  [{qid[:8]}] {state}, retry in {wait}s: {reason}")
+        time.sleep(wait)
 
     stats = execution.get("Statistics", {})
     scanned = stats.get("DataScannedInBytes", 0)

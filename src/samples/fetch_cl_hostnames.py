@@ -58,7 +58,7 @@ PAGE_SIZE = 20
 # prefix would be the federal judiciary with states cut off, not a sample.
 # Doubling this value reuses every cached page, since the strided plan for
 # 2N contains the plan for N. Set to None for a full pull.
-SAMPLE_PAGES = 84
+SAMPLE_PAGES = None
 
 # Closed enumeration: all 50 US states have exactly one official legislature
 # site, not a curated list, so there's no recall gap by construction.
@@ -223,6 +223,19 @@ def fetch_courts(token, sample_pages=SAMPLE_PAGES):
         yield from payload["results"]
 
 
+# CourtListener's url field is sometimes just wrong, not merely stale:
+# confirmed cases point a court at a page that isn't its own site at all.
+# wikipedia.org is the NY Surrogate's Court and two others, and wikimedia.org
+# the Emergency Court of Appeals; fjc.gov is a bankruptcy court, but FJC is the
+# judicial support agency's own site, not that court's; familysearch.org is a
+# genealogy service standing in for the defunct Tennessee Superior Court for Law
+# and Equity, and carries enough captures to rank in the top 40 legal domains if
+# left in. Nothing about the field format distinguishes these from a real court
+# URL, so they're excluded by name as they're found rather than detected.
+BAD_REGISTERED_DOMAINS = {"wikipedia.org", "wikimedia.org", "fjc.gov",
+                          "familysearch.org"}
+
+
 def host_of(raw_url):
     """Hostname out of a court's own website URL, or None if unusable."""
     if not raw_url:
@@ -232,6 +245,8 @@ def host_of(raw_url):
     host = (urlparse(raw_url).hostname or "").strip().lower().rstrip(".")
     # a bare TLD or an IP literal is not a usable sampling target
     if not host or "." not in host or host.replace(".", "").isdigit():
+        return None
+    if registered_domain(host) in BAD_REGISTERED_DOMAINS:
         return None
     return host
 
