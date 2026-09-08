@@ -1,0 +1,29 @@
+{
+  "pool_scored": 7353,
+  "strata": {
+    "high": {
+      "low": 0.85,
+      "high": 1.01,
+      "target": 100,
+      "pool_count": 1121,
+      "available": 1071,
+      "sampled": 100
+    },
+    "mid": {
+      "low": 0.6,
+      "high": 0.85,
+      "target": 100,
+      "pool_count": 1078,
+      "available": 1050,
+      "sampled": 100
+    },
+    "low": {
+      "low": 0.0,
+      "high": 0.6,
+      "target": 50,
+      "pool_count": 5154,
+      "available": 4813,
+      "sampled": 50
+    }
+  }
+}
