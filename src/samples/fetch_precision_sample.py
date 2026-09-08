@@ -62,6 +62,11 @@ STATS_FILE    = "data/candidates/legal_sample_stats.json"
 BATCH_ID      = "legal-precision-v1"
 SEED          = 42
 
+# Every batch row ships with the label field already present and holding this,
+# so labeling is overwriting a value rather than adding a key, and any row still
+# carrying it is visibly unlabeled instead of quietly missing.
+LABEL_PLACEHOLDER = "label_here"
+
 # Cut points and how many labels each stratum gets. The high cut is the likely
 # operating threshold; the low cut is far enough under it that the labels still
 # cover the band a lower threshold would pull in.
@@ -156,7 +161,7 @@ def main():
     with open(args.output, "w", encoding="utf-8") as f:
         for url in picked:
             f.write(json.dumps({"url": url, "hint": "legal_domain_sample",
-                                "batch": BATCH_ID}) + "\n")
+                                "batch": BATCH_ID, "label": LABEL_PLACEHOLDER}) + "\n")
     with open(args.scores, "w", encoding="utf-8") as f:
         for url in picked:
             f.write(json.dumps({"url": url,
