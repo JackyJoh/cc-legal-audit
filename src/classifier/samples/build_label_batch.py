@@ -35,7 +35,7 @@ import random
 import sys
 from urllib.parse import urlparse
 
-ARCHIVE_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "archive", "rule-based")
+ARCHIVE_DIR = os.path.join(os.path.dirname(__file__), "..", "archive", "rule-based")
 sys.path.insert(0, ARCHIVE_DIR)
 from URL_Classifier import classify, InWhitelist  # noqa: E402
 

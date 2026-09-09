@@ -20,10 +20,12 @@ Output: data/candidates/legal_pool.jsonl, one {"url", "host"} per line.
 import argparse
 import json
 import os
+import sys
 
 from dotenv import load_dotenv
 
-from athena import client, run_query, sql_in_list
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "common"))
+from athena import client, run_query, sql_in_list  # noqa: E402
 
 load_dotenv()
 

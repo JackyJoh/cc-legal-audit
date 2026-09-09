@@ -57,8 +57,8 @@ import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "corpus"))
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "classifier"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "common"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "model"))
 from fetch_warc_text import (N_WORKERS, build_row, load_jsonl,  # noqa: E402
                              needs_retry, resolve_pointers)
 from features import MODES, legal_probs, load_bundle  # noqa: E402

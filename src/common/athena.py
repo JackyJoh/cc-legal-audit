@@ -1,7 +1,16 @@
 """
-Shared Athena helper.
+Shared Athena helper: get a client, run a query to completion, get rows back.
 
-fetch_candidate_urls.py and fetch_targeted_urls.py each carry their own
+client()       boto3 Athena client for the fixed region/database.
+run_query()    Runs SQL against the `ccindex` table, retrying transient
+               AWS-side faults (S3 throttling, split errors) with backoff.
+               Returns (rows, stats): rows is a list of {column: value}
+               dicts (nulls preserved as None, not dropped), stats carries
+               bytes/GB scanned, an estimated dollar cost, elapsed time and
+               row count.
+sql_in_list()  Renders a Python iterable as a quoted SQL IN-list literal.
+
+fetch_candidate_urls.py and fetch_targeted_urls.py each carried their own
 single-column run_query. The host-count and per-host-sample stages need
 multiple columns back, plus the bytes-scanned figure so a run's cost is
 visible instead of guessed at, so that logic lives here once.

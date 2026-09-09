@@ -46,8 +46,8 @@ import os
 import random
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "corpus"))
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "classifier"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "common"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "model"))
 from fetch_warc_text import load_jsonl, resolve_pointers  # noqa: E402
 from features import MODES, legal_probs, load_bundle  # noqa: E402
 

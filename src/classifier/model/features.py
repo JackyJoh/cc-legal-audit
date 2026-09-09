@@ -206,7 +206,7 @@ def load_labeled(mode, path=None, quiet=False):
     _, default_path, field = MODES[mode]
     path = path or default_path
     if not os.path.exists(path):
-        raise SystemExit(f"missing {path} - run src/corpus/fetch_warc_text.py first")
+        raise SystemExit(f"missing {path} - run src/common/fetch_warc_text.py first")
 
     by_url, dropped = {}, 0
     for obj in read_jsonl(path):

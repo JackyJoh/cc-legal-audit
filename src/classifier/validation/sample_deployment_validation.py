@@ -41,7 +41,7 @@ import random
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                "..", "classifier"))
+                                "..", "model"))
 from features import MODES, legal_probs, load_bundle, read_jsonl  # noqa: E402
 
 DEFAULT_EXCLUDE = [
@@ -59,7 +59,7 @@ def main():
     ap.add_argument("--model", required=True)
     ap.add_argument("--pool", required=True,
                     help="jsonl to scan. For a text model this must already "
-                         "carry page text, so run src/corpus/fetch_warc_text.py "
+                         "carry page text, so run src/common/fetch_warc_text.py "
                          "over the URL sample first.")
     ap.add_argument("--n", type=int, default=100,
                     help="how many flagged rows to draw for labeling")

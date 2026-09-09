@@ -27,7 +27,7 @@ or so, which is what uniform sampling looks like.
 
 Each row carries its WARC pointer (archive file, byte offset, length)
 alongside the URL. Those columns are free on a query that is already scanning
-the partition, and they let src/corpus/fetch_warc_text.py fetch page text for
+the partition, and they let src/common/fetch_warc_text.py fetch page text for
 this sample without a second index lookup.
 
 The content_languages = 'eng' filter is an exact match, so it takes only
@@ -42,10 +42,12 @@ are requested.
 import argparse
 import json
 import os
+import sys
 
 from dotenv import load_dotenv
 
-from athena import client, run_query
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "common"))
+from athena import client, run_query  # noqa: E402
 
 load_dotenv()
 

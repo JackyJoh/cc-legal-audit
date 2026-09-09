@@ -21,7 +21,7 @@ import sys
 from collections import Counter
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                "..", "classifier"))
+                                "..", "model"))
 from features import (MODES, domain_of, legal_probs, load_bundle,  # noqa: E402
                       read_jsonl)
 

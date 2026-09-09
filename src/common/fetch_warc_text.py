@@ -2,8 +2,8 @@
 Fetches the Common Crawl page text for a list of URLs.
 
 Usage:
-  python src/corpus/fetch_warc_text.py                     # the labeled set
-  python src/corpus/fetch_warc_text.py --input X --output Y
+  python src/common/fetch_warc_text.py                     # the labeled set
+  python src/common/fetch_warc_text.py --input X --output Y
 
 Written for the labeled URLs, but any jsonl with a "url" field works, which
 is what lets the deployment sample and the label set go through identical

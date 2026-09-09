@@ -21,10 +21,12 @@ tell it's looking at a known-legal domain.
 import hashlib
 import json
 import os
+import sys
 
 from dotenv import load_dotenv
 
-from athena import client, run_query, sql_in_list
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "common"))
+from athena import client, run_query, sql_in_list  # noqa: E402
 
 load_dotenv()
 
