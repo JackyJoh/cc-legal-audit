@@ -9,7 +9,7 @@ learning their quirks. That tells you nothing about a legal site it has never
 seen. This script measures the difference by changing what goes in the
 holdout, and nothing else.
 
-Usage: python src/classifier/eval_grouped.py --features url|text
+Usage: python src/classifier/model/eval_grouped.py --features url|text
 
 Four sections, printed in order:
 

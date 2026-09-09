@@ -30,7 +30,7 @@ Each batch is merged independently with the same logic: a labeled row whose
 URL isn't in that batch's own candidate file is dropped as contamination, a
 duplicate label for the same URL is deduped, a conflicting duplicate label
 is logged instead of silently picked, and a label beats a skip for the same
-URL. The three results are then concatenated into one file.
+URL. The five results are then concatenated into one file.
 
 Corrections. The labeling prompt originally allowed a page that "directly
 links to" a filing to count as legal, but Common Crawl only captures a

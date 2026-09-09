@@ -18,7 +18,12 @@ actually sampled from is the one that supports an unbiased estimate.
 
 Intervals come from a stratified bootstrap, resampling labels within each
 stratum, since a closed form for a ratio of weighted sums across strata is
-not worth deriving for 250 rows.
+not worth deriving for 250 rows. Precision and recall both get one, and the
+recall interval is much the wider: precision is decided by the pages the
+filter keeps, which are concentrated in the two heavily-labeled strata,
+while recall is measured against the estimated legal count for the whole
+frame, and about a quarter of that rests on the few legal pages found in the
+sparsely-labeled low stratum.
 
 Reads:
   data/candidates/legal_sample_batch.jsonl   URLs with hand labels
@@ -70,21 +75,32 @@ def rates(rows, t):
     return kept, legal_kept, legal_all
 
 
-def boot_ci(by_stratum, t, key):
-    """Percentile interval, resampling inside each stratum."""
+def boot_cis(by_stratum, t):
+    """Percentile intervals for precision and recall, resampling inside each
+    stratum.
+
+    Both come off the same draws, so the two intervals describe one bootstrap
+    rather than two independent ones, and the run costs a single pass.
+
+    Recall is the wider of the two by a lot, and structurally so: its
+    denominator is the estimated legal count for the whole frame, and roughly
+    a quarter of that estimate rests on the handful of legal pages found in
+    the low stratum, each standing for ~96 pool pages. Precision at a high
+    threshold barely touches those rows; recall cannot avoid them.
+    """
     rng = random.Random(SEED)
-    vals = []
+    prec, rec = [], []
     for _ in range(N_BOOT):
         draw = []
         for rows in by_stratum.values():
             draw.extend(rng.choices(rows, k=len(rows)))
         kept, legal_kept, legal_all = rates(draw, t)
-        if key == "precision":
-            vals.append(legal_kept / kept if kept else 0.0)
-        else:
-            vals.append(legal_kept / legal_all if legal_all else 0.0)
-    vals.sort()
-    return vals[int(0.025 * N_BOOT)], vals[int(0.975 * N_BOOT)]
+        prec.append(legal_kept / kept if kept else 0.0)
+        rec.append(legal_kept / legal_all if legal_all else 0.0)
+    prec.sort()
+    rec.sort()
+    lo, hi = int(0.025 * N_BOOT), int(0.975 * N_BOOT)
+    return (prec[lo], prec[hi]), (rec[lo], rec[hi])
 
 
 def main():
@@ -116,7 +132,8 @@ def main():
         w = frame / len(rows)
         for r in rows:
             r["w"] = w
-        print(f"{name:>8} {f'{st[chr(108)+chr(111)+chr(119)]:.2f}-{st[chr(104)+chr(105)+chr(103)+chr(104)]:.2f}':>12} "
+        band = f"{st['low']:.2f}-{st['high']:.2f}"
+        print(f"{name:>8} {band:>12} "
               f"{frame:>7} {len(rows):>7} {k:>6} {k/len(rows):>7.3f}  "
               f"[{lo:.3f}, {hi:.3f}]")
 
@@ -131,17 +148,17 @@ def main():
     print("2. PRECISION, RECALL AND YIELD BY THRESHOLD")
     print("=" * 68)
     print(f"{'t':>5} {'precision':>10} {'95% CI':>16} {'contam':>7} "
-          f"{'recall':>7} {'yield':>7} {'kept':>8}")
+          f"{'recall':>7} {'95% CI':>16} {'yield':>7} {'kept':>8}")
     for t in THRESHOLDS:
         kept, legal_kept, _ = rates(allrows, t)
         if kept == 0:
             continue
         prec = legal_kept / kept
         rec = legal_kept / legal_all
-        plo, phi = boot_ci(by_stratum, t, "precision")
+        (plo, phi), (rlo, rhi) = boot_cis(by_stratum, t)
         print(f"{t:>5.2f} {prec:>10.3f} {f'[{plo:.3f}, {phi:.3f}]':>16} "
-              f"{1 - prec:>7.1%} {rec:>7.3f} {kept / frame_total:>7.1%} "
-              f"{kept:>8,.0f}")
+              f"{1 - prec:>7.1%} {rec:>7.3f} {f'[{rlo:.3f}, {rhi:.3f}]':>16} "
+              f"{kept / frame_total:>7.1%} {kept:>8,.0f}")
 
     print("\n" + "=" * 68)
     print("3. WHAT A HIGH THRESHOLD DISCARDS")
@@ -182,7 +199,7 @@ def at_scale(allrows, legal_all, frame_total, by_stratum):
     yield_rate = kept / frame_total
     precision = legal_kept / kept
     base_rate = legal_all / frame_total
-    plo, phi = boot_ci(by_stratum, CHOSEN, "precision")
+    (plo, phi), _ = boot_cis(by_stratum, CHOSEN)
 
     print("\n" + "=" * 68)
     print(f"4. AT SCALE, AT THRESHOLD {CHOSEN}")

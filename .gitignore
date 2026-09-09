@@ -12,7 +12,7 @@ data/candidates/raw_pool_no_ca.jsonl
 # raw API page caches, quota-expensive to refetch but large and redundant:
 # the useful digest is written alongside them (register_sources_*.jsonl)
 data/candidates/_*cache*.jsonl
-# ~100MB of extracted page text, regenerate via src/classifier/corpus/fetch_warc_text.py
+# ~100MB of extracted page text, regenerate via src/common/fetch_warc_text.py
 # from the committed warc_pointers.jsonl (no Athena spend needed)
 data/processed/labeled_text.jsonl
 # fitted models, ~5s to rebuild via src/classifier/model/train_classifier.py

@@ -2,7 +2,7 @@
 Trains the legal/non-legal classifier and writes it to disk so it can score
 documents later.
 
-Usage: python src/classifier/train_classifier.py --features url|text
+Usage: python src/classifier/model/train_classifier.py --features url|text
 
 Feature recipes come from features.py rather than being spelled out here, so
 the trainer and eval_grouped.py cannot end up fitting different models.
@@ -46,12 +46,17 @@ TEST_SIZE = 0.2
 MODEL_DIR = "models"
 THRESHOLDS = [0.5, 0.6, 0.65, 0.7, 0.75, 0.85, 0.9, 0.95]
 
-# Provisional. Recorded in the bundle as a default, not as a validated
-# operating point: both were picked from held-out label-set metrics, where
-# legal is ~24% of rows. In the real crawl it is nearer 0.1%, and precision
-# does not survive that change of base rate. Until the deployment sample is
-# labeled, treat these as placeholders.
-DEFAULT_THRESHOLD = {"url": 0.85, "text": 0.60}
+# "text" is the shipped operating point, validated on the 250-page deployment
+# sample rather than on held-out label-set metrics: 0.953 precision, 4.7%
+# contamination inside the authority domains (validation/precision_report.py).
+# score.py flags on whatever value the bundle carries, so this is live - moving
+# it moves what the corpus keeps.
+#
+# "url" belongs to the superseded URL classifier and is still a placeholder:
+# it was picked from held-out label-set metrics, where legal is ~24% of rows,
+# against a crawl base rate nearer 0.1%, and precision does not survive that
+# change of base rate.
+DEFAULT_THRESHOLD = {"url": 0.85, "text": 0.75}
 
 
 def file_sha256(path):
@@ -121,9 +126,10 @@ def main():
                     help="what the model reads: the URL string, or the "
                          "extracted page text")
     ap.add_argument("--threshold", type=float, default=None,
-                    help="operating threshold recorded in the bundle "
-                         "(default: 0.85 for url, 0.60 for text, both "
-                         "provisional pending the deployment sample)")
+                    help="operating threshold recorded in the bundle, which "
+                         "score.py flags on (default: 0.75 for text, "
+                         "validated on the deployment sample; 0.85 for the "
+                         "superseded url model, still provisional)")
     ap.add_argument("--domain-weight", type=float, default=0.5,
                     help="how much to even out publisher influence on the "
                          "fit, 0 to 1. 0 is an unweighted fit, where "

@@ -86,7 +86,8 @@ class DomainPurityTfidf:
 
 
 def url_features():
-    """Character 3-5 grams over the URL string. The shipped model."""
+    """Character 3-5 grams over the URL string. Superseded 2026-09-03 by
+    text_features below; kept so the URL model stays reproducible."""
     return DomainPurityTfidf(analyzer="char", ngram_range=(3, 5), min_df=2)
 
 
@@ -164,7 +165,7 @@ def load_bundle(path, quiet=False):
     inline is how four scripts ended up carrying four copies of the recipe.
     """
     if not os.path.exists(path):
-        raise SystemExit(f"missing {path} - run src/classifier/train_classifier.py first")
+        raise SystemExit(f"missing {path} - run src/classifier/model/train_classifier.py first")
     bundle = joblib.load(path)
     if not quiet:
         meta = bundle["meta"]

@@ -1,7 +1,7 @@
 """
 Draws a uniform random sample of URLs from a Common Crawl snapshot.
 
-Usage: python src/samples/fetch_candidate_urls.py [--n 600000] [--output F]
+Usage: python src/classifier/samples/fetch_candidate_urls.py [--n 600000] [--output F]
 
 Pure sourcing, no classification. Two things depend on this sample being
 genuinely uniform: the base rate of legal pages in the crawl, and every

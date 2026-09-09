@@ -1,7 +1,7 @@
 """
 Writes the full threshold sweep to CSV for the writeup.
 
-Usage: python src/classifier/threshold_sweep_full.py --features url|text
+Usage: python src/classifier/model/threshold_sweep_full.py --features url|text
 
 Same split and same feature recipe as train_classifier.py, at every threshold
 from 0.05 to 0.95 instead of the handful the trainer prints, with raw tp/fp/fn

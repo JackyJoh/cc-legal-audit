@@ -2,7 +2,7 @@
 Scores documents with a saved model and writes one probability per row.
 
 Usage:
-  python src/classifier/score.py --model models/text_clf.joblib \
+  python src/classifier/model/score.py --model models/text_clf.joblib \
       --input data/processed/deployment_text.jsonl \
       --output data/processed/deployment_scores.jsonl
 
