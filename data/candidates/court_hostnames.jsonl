@@ -16,6 +16,7 @@
 {"host": "leg.colorado.gov", "registered_domain": "colorado.gov", "sources": ["seed:us-legislature"], "n_courts": 0, "jurisdictions": [], "example_court": null}
 {"host": "www.colorado.gov", "registered_domain": "colorado.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["SS"], "example_court": "Colorado Industrial Claim Appeals Office"}
 {"host": "www.coloradosupremecourt.com", "registered_domain": "coloradosupremecourt.com", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["S"], "example_court": "Supreme Court of Colorado"}
+{"host": "www.courtswv.gov", "registered_domain": "courtswv.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["S"], "example_court": "West Virginia Supreme Court"}
 {"host": "www.cga.ct.gov", "registered_domain": "ct.gov", "sources": ["seed:us-legislature"], "n_courts": 0, "jurisdictions": [], "example_court": null}
 {"host": "www.jud.ct.gov", "registered_domain": "ct.gov", "sources": ["cl-courts"], "n_courts": 2, "jurisdictions": ["SA"], "example_court": "Connecticut Appellate Court"}
 {"host": "www.dccourts.gov", "registered_domain": "dccourts.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["S"], "example_court": "District of Columbia Court of Appeals"}
@@ -28,6 +29,7 @@
 {"host": "www.legis.ga.gov", "registered_domain": "ga.gov", "sources": ["seed:us-legislature"], "n_courts": 0, "jurisdictions": [], "example_court": null}
 {"host": "www.gaappeals.us", "registered_domain": "gaappeals.us", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["SA"], "example_court": "Court of Appeals of Georgia"}
 {"host": "www.gasupreme.us", "registered_domain": "gasupreme.us", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["S"], "example_court": "Supreme Court of Georgia"}
+{"host": "www.guamsupremecourt.com", "registered_domain": "guamsupremecourt.com", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["TS"], "example_court": "Supreme Court of Guam"}
 {"host": "www.capitol.hawaii.gov", "registered_domain": "hawaii.gov", "sources": ["seed:us-legislature"], "n_courts": 0, "jurisdictions": [], "example_court": null}
 {"host": "legislature.idaho.gov", "registered_domain": "idaho.gov", "sources": ["seed:us-legislature"], "n_courts": 0, "jurisdictions": [], "example_court": null}
 {"host": "www.isc.idaho.gov", "registered_domain": "idaho.gov", "sources": ["cl-courts"], "n_courts": 2, "jurisdictions": ["S", "SA"], "example_court": "Idaho Supreme Court"}
@@ -124,6 +126,8 @@
 {"host": "www.courts.state.tx.us", "registered_domain": "state.tx.us", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["SA"], "example_court": "Court of Appeals of Texas"}
 {"host": "www.scjc.state.tx.us", "registered_domain": "state.tx.us", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["SS"], "example_court": "Texas Special Court of Review"}
 {"host": "www.supreme.courts.state.tx.us", "registered_domain": "state.tx.us", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["S"], "example_court": "Texas Supreme Court"}
+{"host": "www.courts.state.va.us", "registered_domain": "state.va.us", "sources": ["cl-courts"], "n_courts": 2, "jurisdictions": ["S", "SA"], "example_court": "Supreme Court of Virginia"}
+{"host": "www.courts.state.wy.us", "registered_domain": "state.wy.us", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["S"], "example_court": "Wyoming Supreme Court"}
 {"host": "supremecourt.gov", "registered_domain": "supremecourt.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["F"], "example_court": "Supreme Court of the United States"}
 {"host": "statutes.capitol.texas.gov", "registered_domain": "texas.gov", "sources": ["seed:us-legislature"], "n_courts": 0, "jurisdictions": [], "example_court": null}
 {"host": "texasattorneygeneral.gov", "registered_domain": "texasattorneygeneral.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["SAG"], "example_court": "Texas Attorney General Reports"}
@@ -212,6 +216,7 @@
 {"host": "www.innd.uscourts.gov", "registered_domain": "uscourts.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["FD"], "example_court": "District Court, N.D. Indiana"}
 {"host": "www.insb.uscourts.gov", "registered_domain": "uscourts.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["FB"], "example_court": "United States Bankruptcy Court, S.D. Indiana"}
 {"host": "www.insd.uscourts.gov", "registered_domain": "uscourts.gov", "sources": ["cl-courts"], "n_courts": 2, "jurisdictions": ["FD"], "example_court": "District Court, S.D. Indiana"}
+{"host": "www.jpml.uscourts.gov", "registered_domain": "uscourts.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["FS"], "example_court": "United States Judicial Panel on Multidistrict Litigation"}
 {"host": "www.ksb.uscourts.gov", "registered_domain": "uscourts.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["FB"], "example_court": "United States Bankruptcy Court, D. Kansas"}
 {"host": "www.ksd.uscourts.gov", "registered_domain": "uscourts.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["FD"], "example_court": "District Court, D. Kansas"}
 {"host": "www.kyeb.uscourts.gov", "registered_domain": "uscourts.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["FB"], "example_court": "United States Bankruptcy Court, E.D. Kentucky"}
@@ -307,7 +312,7 @@
 {"host": "www.txwb.uscourts.gov", "registered_domain": "uscourts.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["FB"], "example_court": "United States Bankruptcy Court, W.D. Texas"}
 {"host": "www.txwd.uscourts.gov", "registered_domain": "uscourts.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["FD"], "example_court": "District Court, W.D. Texas"}
 {"host": "www.uscfc.uscourts.gov", "registered_domain": "uscourts.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["FS"], "example_court": "United States Court of Federal Claims"}
-{"host": "www.uscourts.gov", "registered_domain": "uscourts.gov", "sources": ["cl-courts"], "n_courts": 8, "jurisdictions": ["FS", "FBP", "FD"], "example_court": "Special Court under the Regional Rail Reorganization Act"}
+{"host": "www.uscourts.gov", "registered_domain": "uscourts.gov", "sources": ["cl-courts"], "n_courts": 9, "jurisdictions": ["FS", "FBP", "FD", "C"], "example_court": "Special Court under the Regional Rail Reorganization Act"}
 {"host": "www.utb.uscourts.gov", "registered_domain": "uscourts.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["FB"], "example_court": "United States Bankruptcy Court, D. Utah"}
 {"host": "www.utd.uscourts.gov", "registered_domain": "uscourts.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["FD"], "example_court": "District Court, D. Utah"}
 {"host": "www.vaeb.uscourts.gov", "registered_domain": "uscourts.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["FB"], "example_court": "United States Bankruptcy Court, E.D. Virginia"}
@@ -333,10 +338,15 @@
 {"host": "www.uspto.gov", "registered_domain": "uspto.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["FS"], "example_court": "Trademark Trial and Appeal Board"}
 {"host": "www.ustaxcourt.gov", "registered_domain": "ustaxcourt.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["FS"], "example_court": "United States Tax Court"}
 {"host": "le.utah.gov", "registered_domain": "utah.gov", "sources": ["seed:us-legislature"], "n_courts": 0, "jurisdictions": [], "example_court": null}
+{"host": "www.utcourts.gov", "registered_domain": "utcourts.gov", "sources": ["cl-courts"], "n_courts": 2, "jurisdictions": ["S", "SA"], "example_court": "Utah Supreme Court"}
 {"host": "www.index.va.gov", "registered_domain": "va.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["FS"], "example_court": "Board of Veterans' Appeals"}
 {"host": "legislature.vermont.gov", "registered_domain": "vermont.gov", "sources": ["seed:us-legislature"], "n_courts": 0, "jurisdictions": [], "example_court": null}
+{"host": "www.vermontjudiciary.org", "registered_domain": "vermontjudiciary.org", "sources": ["cl-courts"], "n_courts": 2, "jurisdictions": ["S", "SA"], "example_court": "Supreme Court of Vermont"}
 {"host": "law.lis.virginia.gov", "registered_domain": "virginia.gov", "sources": ["seed:us-legislature"], "n_courts": 0, "jurisdictions": [], "example_court": null}
 {"host": "app.leg.wa.gov", "registered_domain": "wa.gov", "sources": ["seed:us-legislature"], "n_courts": 0, "jurisdictions": [], "example_court": null}
-{"host": "docs.legis.wisconsin.gov", "registered_domain": "wisconsin.gov", "sources": ["seed:us-legislature"], "n_courts": 0, "jurisdictions": [], "example_court": null}
+{"host": "www.atg.wa.gov", "registered_domain": "wa.gov", "sources": ["cl-courts"], "n_courts": 1, "jurisdictions": ["SAG"], "example_court": "Washington Attorney General Reports"}
+{"host": "www.courts.wa.gov", "registered_domain": "wa.gov", "sources": ["cl-courts"], "n_courts": 2, "jurisdictions": ["S", "SA"], "example_court": "Washington Supreme Court"}
+{"host": "www.wicourts.gov", "registered_domain": "wicourts.gov", "sources": ["cl-courts"], "n_courts": 2, "jurisdictions": ["S", "SA"], "example_court": "Wisconsin Supreme Court"}
+{"host": "docs.legis.wisconsin.gov", "registered_domain": "wisconsin.gov", "sources": ["cl-courts", "seed:us-legislature"], "n_courts": 1, "jurisdictions": ["SAG"], "example_court": "Wisconsin Attorney General Reports"}
 {"host": "www.wvlegislature.gov", "registered_domain": "wvlegislature.gov", "sources": ["seed:us-legislature"], "n_courts": 0, "jurisdictions": [], "example_court": null}
 {"host": "www.wyoleg.gov", "registered_domain": "wyoleg.gov", "sources": ["seed:us-legislature"], "n_courts": 0, "jurisdictions": [], "example_court": null}
