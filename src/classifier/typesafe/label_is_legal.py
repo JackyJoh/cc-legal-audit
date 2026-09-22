@@ -1,53 +1,50 @@
 """
-Asks Jev (TypeSafe's System One model) the one question this project cares
-about, "is this page a legal document?", for every row of a text JSONL, and
-writes the yes/no answer per URL.
+Reads a JSONL of page text, asks Jev whether each page is a legal document,
+and writes the answer and the score per URL.
 
-The definition is from prompts/legal_url_labeling_task.md, lifted verbatim
-so Jev is judging against exactly the same bar the hand-labeled ground truth
-was produced under. If that definition changes, change it there and here
-together.
+The question is the definition from prompts/legal_url_labeling_task.md,
+copied word for word, so Jev is judging against the same bar the hand labels
+were produced under. If the definition changes it has to change in both
+places or the two stop being comparable.
 
-Docs are packed several to a request: the definition goes into state once,
-each doc goes in as `docs[i]`, and one Noul question per doc points at its
-own `docs[i]`. All questions in a request run in parallel server-side. How
-many docs share a request is set by a token budget on the state, not a
-fixed count, so it adapts to page sizes and stays under Jev's 32k-token
-state limit. The docs' own throughput pattern is one doc per request with
-client-side concurrency, so packing is a cost/accuracy experiment, not the
-blessed path: --state-tokens 0 gets the single-doc behaviour back.
+Pages can share a request. The definition is sent once and each page is a
+separate question against it, so packing is most of what makes a large run
+cheap. How many pages share a request is a token budget rather than a fixed
+count, so it follows page size. Packing is not free of consequence: at forty
+pages a request Jev stopped answering them independently and the scores drifted
+toward whatever else was in the request, which is why openweb_precision.py
+sends one page at a time. --state-tokens 0 does the same here.
 
-Requests go out over a thread pool. When a packed request fails, its docs
-are split in half and both halves go back on the pool rather than being
-retried one at a time in order: a single bad page is isolated in log2(n)
-rounds while the good pages around it get answered, and none of it waits
-on the rest of the run. A request of one doc that fails is written to the
-skipped file and left there. An auth or permission error stops the run
-outright instead of being retried per request.
+Requests go out on a thread pool. One that fails is split in half and both
+halves go back on the pool, so a single bad page is isolated in a few rounds
+while the pages around it get answered instead of waiting. A page that still
+fails on its own goes to the skipped file. An auth or permission error stops
+the run rather than being retried once per request.
 
-This script only batches the queries. It does not check the answers against
-existing labels; that's eval_is_legal.py, so the two concerns stay apart.
-The core is importable: openweb_precision.py drives the same `run()` over a
+This only asks the questions. Checking the answers against existing labels is
+eval_is_legal.py. run() is importable, and openweb_precision.py uses it over a
 uniform crawl draw.
+
+Resumable: URLs already in the output are skipped, and each request's answers
+are appended as soon as they land.
 
 Usage:
     python src/classifier/typesafe/label_is_legal.py
     python src/classifier/typesafe/label_is_legal.py --input some/other.jsonl --output out.jsonl
-    python src/classifier/typesafe/label_is_legal.py --state-tokens 0   # one doc per request
+    python src/classifier/typesafe/label_is_legal.py --state-tokens 0   # one page per request
 
 Input:  JSONL with at least {"url": ..., "text": ...}
         default data/processed/labeled_text.jsonl
-Output: JSONL of {"url", "is_legal": "yes"|"no", "p_legal",
+Output: JSONL of {"url", "is_legal": "yes"|"no", "p_legal", "jev_version",
                   "request", "request_size", "input_tokens", "output_tokens"}
         default data/labels/jev_is_legal.jsonl
-        p_legal is Jev's raw P(yes); is_legal is that cut at YES_THRESHOLD.
-        Token counts are for the whole request the row rode in, not the row
-        alone: to cost a run, sum tokens over distinct `request` values.
-        Rows with no text or a failed request go to <output>.skipped.jsonl
-        with a reason, never into the main file.
-
-Resumable: URLs already in the output file are skipped on rerun. Every
-request's answers are appended to disk as soon as they come back.
+        p_legal is Jev's raw P(yes) and is_legal is that cut at
+        YES_THRESHOLD. jev_version is the release that answered, since
+        jev-latest is an alias and rows only compare when it matches. Token
+        counts belong to the whole request a row rode in, so cost a run by
+        summing over distinct request values. Pages with no text, and pages
+        whose request kept failing, go to <output>.skipped.jsonl with a
+        reason and never into the main file.
 
 Requires JEV_API_KEY in .env.
 """
@@ -215,12 +212,18 @@ def pack(docs, token_budget):
 
 def ask(client, docs):
     """One request for a list of {url, text} docs. Returns the parallel list
-    of P(yes), plus the response's usage."""
+    of P(yes), the response's usage, and the model that actually answered.
+
+    That last one is not the alias the request asked for: `jev-latest`
+    resolves server-side to whatever release is current, so the alias says
+    nothing about which model produced a score. Scores from two releases are
+    not comparable and a scores file outlives any one of them, so the release
+    is recorded per row rather than assumed."""
     state = {"definition": DEFINITION, "docs": docs}
     questions = {f"is_legal_{i}": question_for(i) for i in range(len(docs))}
     resp = client.system_one(state=state, questions=questions)
     probs = [resp.nouls[f"is_legal_{i}"].noul for i in range(len(docs))]
-    return probs, resp.usage
+    return probs, resp.usage, resp.model
 
 
 class Packer:
@@ -304,7 +307,7 @@ class Labeler:
         if self.fatal:
             return
         try:
-            probs, usage = ask(self.client, docs)
+            probs, usage, model = ask(self.client, docs)
         except (TypeSafeAuthenticationError, TypeSafePermissionDeniedError) as e:
             with self.lock:
                 self.fatal = e
@@ -330,6 +333,7 @@ class Labeler:
             "url":           d["url"],
             "is_legal":      "yes" if p >= YES_THRESHOLD else "no",
             "p_legal":       round(p, 4),
+            "jev_version":   model,
             "request":       req_id,
             "request_size":  len(docs),
             "input_tokens":  usage.input_tokens,

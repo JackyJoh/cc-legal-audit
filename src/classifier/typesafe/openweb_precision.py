@@ -1,58 +1,44 @@
 """
-Measures Jev's precision on the open web the only affordable way: score a
-uniform crawl draw, keep what Jev calls legal, and hand-label just that.
+Fetches N_DRAW pages of the open crawl, asks Jev whether each one is a legal
+document, and writes the ones it says yes to into a file to hand label.
 
-Why only the kept pages need labels. Precision is legal-kept over kept, so
-the denominator is the kept set and nothing else has to be looked at. The
-number that can't be measured this way is the false-positive rate, whose
-denominator is every non-legal page in the draw; at a 0.12% base rate the
-FPR a usable open-web filter needs is around 0.01%, which takes tens of
-thousands of labeled negatives to see even one miss. Precision sidesteps
-that: 100k pages scored yields ~60 legal kept at a 0.90 cut plus whatever
-leaks, and labeling that handful gives precision with a real interval.
-If every kept page comes back legal, the Wilson lower bound at n kept is
-what can be claimed; the summary prints it so the run says whether it was
-big enough.
+The draw is uniform, so the pages are whatever the crawl actually holds
+rather than anywhere law was expected to be. Each page is fetched and
+extracted the way the training text was, then scored on its own. Anything at
+or above CUT goes to the labeling file; everything else keeps its score on
+disk and is not looked at again.
 
-This is fetch_flagged_urls.py with Jev in place of the TF-IDF model, and it
-reuses that script's dedupe and file conventions. Two deliberate
-differences. The draw keeps each pool row's WARC pointer columns instead of
-stripping them to a bare URL, so locating 100k pages costs nothing rather
-than a chunked Athena lookup. And fetching and scoring overlap: each page
-goes onto a queue the moment its text lands, a packer fills Jev requests
-off that queue by token budget, and a second pool sends them. Scoring is a
-tenth the wall-clock of fetching, so the gain isn't speed; it's that kept
-pages and their scores show up minutes in, and a run killed halfway has
-scored everything it fetched.
+Hand labeling that kept file is what produces a number. Precision is the
+share of kept pages that really are legal, so the kept set is the entire
+denominator and nothing outside it has to be read. A hundred thousand pages
+leaves about a hundred and sixty to label. The false positive rate cannot be
+had this cheaply, since its denominator is every non-legal page in the draw,
+so this answers precision and leaves that alone.
 
-No flags. It is one specific experiment; the numbers that define it are the
-constants below. Every stage resumes: the pool is pulled once, page text is
-cached as it lands, Jev scores are appended per request, and a rerun picks
-up wherever the last one stopped.
+Fetching and scoring run at the same time. Scoring is much the faster of the
+two, so this is not about finishing sooner: it means kept pages appear
+minutes into a run, and a run killed partway through has scored everything it
+fetched.
 
-Stages:
-  1. Pool.   data/candidates/raw_pool.jsonl, ~600k uniform URLs with
-             pointers. Pulled via fetch_candidate_urls if missing (one
-             Athena scan, about $0.50).
-  2. Draw.   First N_DRAW of a seeded shuffle, same seed as the flagged run.
-  3. Fetch + score, overlapped. 6 fetch workers (WARC range-GETs +
-             trafilatura), appended to the cache per page; 20 Jev workers
-             sending one doc per request (see STATE_TOKENS for why).
-  4. Keep.   p_legal >= CUT, minus anything already labeled or batched.
-  5. Write.  The batch (URLs only) and the scores, in separate files, so the
-             labeling agent never sees what Jev thinks.
-  6. Compact the text cache: dedupe to one row per URL, drop text only for
-             pages that were never scored (no-text, dead links, etc).
+The labeling file is only ever added to. A URL already in it keeps its row
+and whatever label was written there, so rerunning this never costs labeling
+work. Scores go to a separate file, as in every other batch here, because the
+labeling agent agreeing with Jev is the thing being tested.
 
-Outputs:
-  data/labels/jev_openweb_scores.jsonl            every scored page, p_legal, tokens
-  data/candidates/jev_openweb_batch.jsonl         kept URLs for labeling, no score
-  data/candidates/jev_openweb_kept_scores.jsonl   p_legal per kept URL
+No flags. The constants below are the experiment, and every stage resumes.
 
-Then label the batch with prompts/legal_url_labeling_task.md and read the
-result with eval_is_legal.py --truth <run file> --pred <kept scores>.
+Reads:
+  data/candidates/raw_pool.jsonl
 
-Requires JEV_API_KEY and the AWS/Athena keys in .env.
+Writes:
+  data/labels/jev_openweb_scores.jsonl           every page scored
+  data/candidates/jev_openweb_kept_full.jsonl    the labeling file
+  data/candidates/jev_openweb_kept_scores.jsonl  score per kept URL
+
+Label the kept file with prompts/legal_url_labeling_task.md, then read the
+result with eval_is_legal.py.
+
+Requires JEV_API_KEY and the AWS keys in .env.
 """
 import json
 import math
@@ -69,7 +55,6 @@ sys.path.insert(0, os.path.join(HERE, "..", "samples"))
 sys.path.insert(0, HERE)
 from fetch_warc_text import (N_WORKERS, build_row, load_jsonl,  # noqa: E402
                              needs_retry, resolve_pointers)
-from fetch_flagged_urls import EXISTING, load_existing_urls  # noqa: E402
 import fetch_candidate_urls as pool_puller  # noqa: E402
 import label_is_legal as jev  # noqa: E402
 
@@ -99,19 +84,13 @@ TEXT_CACHE    = "data/candidates/_pool_text_cache.jsonl"
 POINTER_CACHE = "data/candidates/_pool_pointers_cache.jsonl"
 JEV_SCORES    = "data/labels/jev_openweb_scores.jsonl"
 JEV_SKIPPED   = "data/labels/jev_openweb_scores.skipped.jsonl"
-OUTPUT_FILE   = "data/candidates/jev_openweb_batch.jsonl"
+KEPT_FULL     = "data/candidates/jev_openweb_kept_full.jsonl"
 SCORES_FILE   = "data/candidates/jev_openweb_kept_scores.jsonl"
-BATCH_ID      = "jev-openweb-v1"
+
+# What an unlabeled row in KEPT_FULL holds. Anything else in a row's `label`
+# is a hand label and is never touched again.
+UNLABELED     = "your_label"
 PRICE_PER_M   = 0.042   # USD per million input tokens, jev-latest
-
-# Beyond fetch_flagged_urls' list: the batches that exist now but didn't
-# when that list was written.
-ALREADY_LABELED = EXISTING + [
-    "data/candidates/flagged_sample_batch.jsonl",
-    "data/candidates/legal_sample_batch.jsonl",
-    "data/validation/precision_sets.jsonl",
-]
-
 
 def ensure_pool():
     if os.path.exists(POOL_FILE):
@@ -253,6 +232,46 @@ def fetch_and_score(rows, pointers, cache_path, labeler, already_scored):
     return have
 
 
+def merge_kept_full(path, kept):
+    """Stage 5. Fold this run's kept URLs into the hand-labeling file without
+    disturbing what is already there.
+
+    The file is the labeling worksheet and the precision denominator at once,
+    so it is additive and never authoritative about anything but its own
+    labels: rows keep their position and their `label` exactly as found, a URL
+    that is new gets appended with the UNLABELED placeholder, and a URL that
+    was kept by an earlier run but not by this one stays put. That last case
+    is deliberate. Raising CUT or redrawing must not silently delete labels
+    someone spent an afternoon producing; pairing the file against
+    SCORES_FILE is what selects a subset for a given threshold.
+
+    Returns (added, kept_labels).
+    """
+    rows, seen = [], set()
+    if os.path.exists(path):
+        for r in load_jsonl(path):
+            if r["url"] in seen:
+                continue
+            seen.add(r["url"])
+            rows.append(r)
+    labeled = sum(1 for r in rows if r.get("label") not in (None, UNLABELED))
+
+    added = 0
+    for r in kept:
+        if r["url"] not in seen:
+            seen.add(r["url"])
+            rows.append({"url": r["url"], "label": UNLABELED})
+            added += 1
+
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        for r in rows:
+            f.write(json.dumps(r, ensure_ascii=False) + "\n")
+    os.replace(tmp, path)
+    return added, labeled
+
+
 def wilson_lower(k, n, z=1.96):
     """Lower 95% bound on a proportion with k of n; the number you can claim."""
     if n == 0:
@@ -322,20 +341,19 @@ def main():
     kept = [r for r in drawn_scored if r["p_legal"] >= CUT]
     print(f"  {len(kept)} of {len(drawn_scored):,} scored pages at or above {CUT} "
           f"({len(kept) / max(1, len(drawn_scored)):.4%})")
-    existing = load_existing_urls(ALREADY_LABELED)
-    fresh = sorted((r for r in kept if r["url"] not in existing), key=lambda r: r["url"])
-    print(f"  {len(kept) - len(fresh)} already labeled or batched, dropped")
+    # Every kept page goes out, overlap included. Precision is legal-kept
+    # over kept, so a denominator missing the pages other samplers already
+    # found is a denominator for a different question.
+    kept.sort(key=lambda r: r["url"])
 
     print("\n5. Write")
-    os.makedirs(os.path.dirname(OUTPUT_FILE) or ".", exist_ok=True)
-    with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
-        for r in fresh:
-            f.write(json.dumps({"url": r["url"], "hint": "jev_openweb",
-                                "batch": BATCH_ID}) + "\n")
+    added, labeled = merge_kept_full(KEPT_FULL, kept)
+    os.makedirs(os.path.dirname(SCORES_FILE) or ".", exist_ok=True)
     with open(SCORES_FILE, "w", encoding="utf-8") as f:
-        for r in fresh:
-            f.write(json.dumps({"url": r["url"], "p_legal": r["p_legal"]}) + "\n")
-    print(f"  {len(fresh)} URLs to label : {OUTPUT_FILE}")
+        for r in kept:
+            f.write(json.dumps({"url": r["url"], "p_legal": r["p_legal"],
+                                "jev_version": r.get("jev_version")}) + "\n")
+    print(f"  {KEPT_FULL}: {added} new rows, {labeled} hand labels preserved")
     print(f"  scores held separately: {SCORES_FILE}")
 
     print("\n6. Compact")
@@ -344,10 +362,10 @@ def main():
 
     print("\nsummary")
     print(f"  drawn {len(rows):,}  with text {with_text:,}  scored {len(drawn_scored):,}"
-          f"  kept @{CUT} {len(kept)}  to label {len(fresh)}")
+          f"  kept @{CUT} {len(kept)}")
     print(f"  Jev: {len(tokens):,} requests, {total_tokens:,} input tokens, "
           f"~${total_tokens / 1e6 * PRICE_PER_M:.2f}")
-    n = len(fresh)
+    n = len(kept)
     print(f"  if all {n} come back legal, precision >= {wilson_lower(n, n):.3f} (95% lower bound);"
           f" one non-legal -> {wilson_lower(max(0, n - 1), n):.3f}")
 
