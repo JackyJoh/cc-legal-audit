@@ -95,9 +95,12 @@ CHARS_PER_TOKEN = 4
 # limit is 1,200 requests/min, so this is nowhere near it.
 N_WORKERS = 6
 
-# Same as the SDK default policy but with one more attempt, since a packed
-# request that dies on a transient error takes several docs with it.
-RETRY = RetryPolicy(max_retries=3)
+# The SDK backs off on 429 (0.5s doubling to 5s, Retry-After honoured), so
+# retries are what turn a pool running over the 1,200/min cap into
+# throttling instead of dropped docs. A single-doc request that runs out of
+# retries is written to the skipped file and lost from the sample, so the
+# budget is sized for a sustained overrun, not a blip.
+RETRY = RetryPolicy(max_retries=10)
 
 # --- the question --------------------------------------------------------
 # Verbatim from prompts/legal_url_labeling_task.md, "The definition". Only

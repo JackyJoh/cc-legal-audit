@@ -20,9 +20,16 @@ How it works, in two stages so the Athena spend happens once:
      $0.14. The answers are cached to a pointers file, so this stage runs
      once per URL list and never again. An input that already carries pointer
      columns skips the stage entirely.
-  2. Fetch and extract. Range-request exactly those bytes from
-     data.commoncrawl.org over plain HTTP, so no AWS credentials and no S3
-     egress charge, then run trafilatura over the HTML.
+  2. Fetch and extract. Range-GET exactly those bytes from the commoncrawl
+     S3 bucket directly using the same AWS credentials Athena already
+     uses, then run trafilatura over the HTML. A fully anonymous, unsigned
+     request gets AccessDenied on this bucket; a signed request costs
+     nothing regardless, since the bucket is not requester-pays - only a
+     real identity is required, not payment. This used to go through
+     data.commoncrawl.org, a shared HTTPS front for the same bucket; that
+     front throttles under load (see N_WORKERS) in a way the bucket itself
+     does not, since it is one shared endpoint for every caller rather
+     than S3's normal per-request scaling.
 
 Extraction settings are load-bearing and pinned. deduplicate is set off
 explicitly: the option drops repeated segments, and an extractor that quietly
@@ -51,8 +58,10 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-import requests
+import boto3
 import trafilatura
+from botocore.config import Config
+from botocore.exceptions import ClientError, EndpointConnectionError
 from dotenv import load_dotenv
 from warcio.archiveiterator import ArchiveIterator
 
@@ -74,20 +83,43 @@ POINTER_COLS = ("warc_filename", "warc_record_offset", "warc_record_length")
 # chunker never has to reason about the exact overhead of the SQL around
 # the IN-list.
 MAX_QUERY_CHARS = 200_000
-# data.commoncrawl.org throttles with 403/503 under load. 16 workers with
-# immediate retries lost 31% of a full run to throttling; backing off and
-# halving the concurrency trades a few minutes for the whole corpus.
-N_WORKERS = 6
+# Measured against data.commoncrawl.org, the shared HTTPS front this used to
+# fetch through: 16 workers with immediate retries lost 31% of a full run to
+# its throttling, and halving the concurrency traded a few minutes for the
+# whole corpus. Now that stage 2 hits the S3 bucket directly, that ceiling no
+# longer applies as measured - S3 scales per-request rather than throttling
+# one shared endpoint - but this constant hasn't been re-benchmarked against
+# it, so it is left as-is rather than raised on an assumption.
+N_WORKERS = 20
 FETCH_RETRIES = 4
 BACKOFF_BASE = 1.5
 TIMEOUT = 60
-# reasons worth another attempt on a later run; anything else is settled
+# reasons worth another attempt on a later run; anything else is settled.
+# "http NNN" are rows a cache may still carry from before this fetched over
+# the HTTPS front; "s3 ..." are the codes fetch_record raises now. NoSuchKey
+# and NoSuchBucket are deliberately absent - those mean the file is gone,
+# not throttled, and retrying won't change that.
 TRANSIENT = ("http 403", "http 503", "http 500", "http 502", "http 504",
+             "s3 SlowDown", "s3 InternalError", "s3 ServiceUnavailable",
+             "s3 RequestTimeout", "s3 Throttling",
              "Timeout", "Connection", "Chunked", "fetch failed")
 # a handful of captures are enormous; truncation keeps one page from
 # dominating the vectorizer's vocabulary
 MAX_TEXT_CHARS = 500_000
-CC_BASE = "https://data.commoncrawl.org/"
+CC_BUCKET = "commoncrawl"
+CC_REGION = "us-east-1"   # where the bucket lives; matches athena.py's REGION
+
+# Signed with the same credentials athena.py already uses - a fully
+# anonymous, unsigned request gets AccessDenied on this bucket (tested
+# 2026-09-21), so a real identity is required even though nothing is
+# billed to it: the bucket is not requester-pays, so GetObject and
+# transfer are still free. boto3 clients are thread-safe, so every fetch
+# worker shares this one. max_pool_connections defaults to 10, which
+# silently caps concurrency below N_WORKERS; matching it to N_WORKERS is
+# what lets the thread count actually control how many requests are in
+# flight, rather than the first 10 threads doing all the work.
+_s3 = boto3.client("s3", region_name=CC_REGION,
+                    config=Config(max_pool_connections=N_WORKERS))
 
 # Pinned deliberately - trafilatura 1.x and 2.x return different text for the
 # same HTML, so the version is recorded on every row rather than assumed.
@@ -172,28 +204,34 @@ def fetch_pointers(urls):
 
 
 def fetch_record(pointer):
-    """Range-GET one WARC record and return its raw HTTP payload bytes."""
+    """Range-GET one WARC record straight from the S3 bucket and return its
+    raw payload bytes. Anonymous request, no credentials sent, nothing
+    billed to this account - the bucket owner (AWS Open Data) covers it."""
     offset = int(pointer["warc_record_offset"])
     length = int(pointer["warc_record_length"])
-    headers = {"Range": f"bytes={offset}-{offset + length - 1}"}
-    url = CC_BASE + pointer["warc_filename"]
+    key = pointer["warc_filename"]
+    byte_range = f"bytes={offset}-{offset + length - 1}"
 
     last = None
     for attempt in range(FETCH_RETRIES):
         if attempt:
             # jittered exponential backoff: retrying a throttle immediately
-            # is what turned rate limiting into a third of the corpus
+            # is what turned rate limiting into a third of the corpus, back
+            # when this went through the shared HTTPS front instead of S3
             time.sleep(BACKOFF_BASE ** attempt + random.random())
         try:
-            resp = requests.get(url, headers=headers, timeout=TIMEOUT)
-            if resp.status_code not in (200, 206):
-                last = f"http {resp.status_code}"
-                continue
-            for record in ArchiveIterator(io.BytesIO(resp.content)):
+            resp = _s3.get_object(Bucket=CC_BUCKET, Key=key, Range=byte_range)
+            body = resp["Body"].read()
+            for record in ArchiveIterator(io.BytesIO(body)):
                 if record.rec_type == "response":
                     return record.content_stream().read(), None
             return None, "no response record"
-        except Exception as exc:  # network, gzip, or WARC parse failure
+        except ClientError as exc:
+            code = exc.response.get("Error", {}).get("Code", type(exc).__name__)
+            last = f"s3 {code}"
+            if code in ("NoSuchKey", "NoSuchBucket"):
+                break   # settled, not transient: retrying won't find the file
+        except (EndpointConnectionError, Exception) as exc:  # network, gzip, or WARC parse failure
             last = f"{type(exc).__name__}: {exc}"
     return None, last or "fetch failed"
 

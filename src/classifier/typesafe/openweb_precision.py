@@ -36,12 +36,13 @@ Stages:
              Athena scan, about $0.50).
   2. Draw.   First N_DRAW of a seeded shuffle, same seed as the flagged run.
   3. Fetch + score, overlapped. 6 fetch workers (WARC range-GETs +
-             trafilatura), appended to the cache per page; 6 Jev workers
-             fed by a packer that flushes on a full budget or an idle queue.
+             trafilatura), appended to the cache per page; 20 Jev workers
+             sending one doc per request (see STATE_TOKENS for why).
   4. Keep.   p_legal >= CUT, minus anything already labeled or batched.
   5. Write.  The batch (URLs only) and the scores, in separate files, so the
              labeling agent never sees what Jev thinks.
-  6. Compact the text cache: text is kept only for the pages that were kept.
+  6. Compact the text cache: dedupe to one row per URL, drop text only for
+             pages that were never scored (no-text, dead links, etc).
 
 Outputs:
   data/labels/jev_openweb_scores.jsonl            every scored page, p_legal, tokens
@@ -75,6 +76,18 @@ import label_is_legal as jev  # noqa: E402
 N_DRAW = 100_000
 CUT    = 0.90
 SEED   = 42   # same as fetch_flagged_urls, so a draw from the same pool is the same draw
+
+# One doc per request. The first pass packed ~40 docs per request and Jev
+# did not isolate docs[i]: an office-chair listing packed next to a Vermont
+# statute came back 0.84, and statutes in packed requests scored 0.83 where
+# the same kind of page alone scores 0.97. Five of 175 requests held 60% of
+# the yes calls. That pass is kept as jev_openweb_scores.packed.jsonl.
+STATE_TOKENS = 0
+
+# Jev's cap is 1,200 requests/min. Single-doc requests make the cap the
+# ceiling rather than fetch, so run enough workers to sit against it; the
+# SDK backs off on 429 and label_is_legal's retry budget covers the burst.
+JEV_WORKERS = 20
 
 # How long the packer lets a part-filled request sit before sending it
 # anyway. Fetch workers land pages at a steady clip, so this only fires at
@@ -163,7 +176,7 @@ def fetch_and_score(rows, pointers, cache_path, labeler, already_scored):
     def scorer():
         """Packer thread: fill by token budget, flush on a full request or
         an idle queue, stop on the sentinel."""
-        packer = jev.Packer(jev.DEFAULT_STATE_TOKEN_BUDGET)
+        packer = jev.Packer(STATE_TOKENS)
         while True:
             try:
                 doc = q.get(timeout=IDLE_FLUSH_S)
@@ -191,8 +204,17 @@ def fetch_and_score(rows, pointers, cache_path, labeler, already_scored):
     if n_queued[0]:
         print(f"  {n_queued[0]:,} cached pages queued for scoring")
 
+    def refetch(row):
+        """A page another run's compaction stripped (fetch_flagged_urls
+        leaves "not flagged, text dropped") has to be fetched again to be
+        scored here. One this run compacted is already in the scores file
+        and stays skipped."""
+        if row.get("text") or row["url"] in already_scored:
+            return False
+        return needs_retry(row) or "text dropped" in (row.get("skip_reason") or "")
+
     todo = [(r, pointers.get(r["url"])) for r in rows
-            if r["url"] not in have or needs_retry(have[r["url"]])]
+            if r["url"] not in have or refetch(have[r["url"]])]
     print(f"  {len(todo):,} to fetch")
     if todo:
         os.makedirs(os.path.dirname(cache_path) or ".", exist_ok=True)
@@ -243,10 +265,15 @@ def wilson_lower(k, n, z=1.96):
 
 
 def compact(cache_path, keep_text, p_by_url):
-    """Rewrite the cache line by line, dropping page text for every page
-    that was not kept. The url, skip reason and Jev score stay, which is
-    all a rerun needs to know the page is done. Later lines win, as when
-    the cache is read, so the rewrite also removes retried duplicates."""
+    """Rewrite the cache line by line, dropping page text for every page not
+    in `keep_text`. The url, skip reason and Jev score stay regardless,
+    which is all a rerun needs to know the page is done. Later lines win, as
+    when the cache is read, so the rewrite also removes retried duplicates.
+
+    `keep_text` is every scored URL, not just the ones that cleared CUT: the
+    whole uniform draw's text is worth keeping regardless of what Jev says
+    about it, since it is a second, independent labeled sample the sklearn
+    classifier could be retrained on if Jev does not pan out."""
     before = os.path.getsize(cache_path)
     last = {}
     for r in load_jsonl(cache_path):
@@ -279,7 +306,7 @@ def main():
     print(f"  {len(already):,} pages already scored")
     os.makedirs(os.path.dirname(JEV_SCORES) or ".", exist_ok=True)
     with jev.make_client() as client:
-        labeler = jev.Labeler(client, JEV_SCORES, JEV_SKIPPED)
+        labeler = jev.Labeler(client, JEV_SCORES, JEV_SKIPPED, workers=JEV_WORKERS)
         have = fetch_and_score(rows, pointers, TEXT_CACHE, labeler, already)
         labeler.close()
     with_text = sum(1 for r in rows if have.get(r["url"], {}).get("text_chars"))
@@ -312,7 +339,7 @@ def main():
     print(f"  scores held separately: {SCORES_FILE}")
 
     print("\n6. Compact")
-    compact(TEXT_CACHE, {r["url"] for r in kept},
+    compact(TEXT_CACHE, {r["url"] for r in drawn_scored},
             {r["url"]: r["p_legal"] for r in drawn_scored})
 
     print("\nsummary")
