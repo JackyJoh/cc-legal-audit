@@ -332,10 +332,9 @@ def main():
 
     scored = {r["url"]: r for r in load_jsonl(JEV_SCORES)}
     drawn_scored = [scored[r["url"]] for r in rows if r["url"] in scored]
-    tokens = {}
-    for r in drawn_scored:
-        tokens[r["request"]] = r["input_tokens"]
-    total_tokens = sum(tokens.values())
+    # One page per request here (STATE_TOKENS), so a row is a request and its
+    # tokens are its own.
+    total_tokens = sum(r["input_tokens"] for r in drawn_scored)
 
     print("\n4. Keep")
     kept = [r for r in drawn_scored if r["p_legal"] >= CUT]
@@ -363,7 +362,7 @@ def main():
     print("\nsummary")
     print(f"  drawn {len(rows):,}  with text {with_text:,}  scored {len(drawn_scored):,}"
           f"  kept @{CUT} {len(kept)}")
-    print(f"  Jev: {len(tokens):,} requests, {total_tokens:,} input tokens, "
+    print(f"  Jev: {len(drawn_scored):,} requests, {total_tokens:,} input tokens, "
           f"~${total_tokens / 1e6 * PRICE_PER_M:.2f}")
     n = len(kept)
     print(f"  if all {n} come back legal, precision >= {wilson_lower(n, n):.3f} (95% lower bound);"
