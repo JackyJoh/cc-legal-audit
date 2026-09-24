@@ -10,29 +10,35 @@ Standard LLM pre-training pipelines apply a uniform Jaccard similarity threshold
 
 1. Sample a Common Crawl snapshot (CC-MAIN-2026-12)
 2. Apply fixed preprocessing: language filtering, quality heuristics, repetition removal (Gopher defaults held constant)
-3. Source the legal bucket from authority-enumerated legal publishers, then classify page type within it on page text; draw the general bucket from depth-matched random hosts
+3. Split pages into a legal bucket (see [Legal detection](#legal-detection)) and a general-web bucket
 4. Measure baseline topic entropy (BERTopic + Shannon entropy) per domain before deduplication
 5. Run MinHash fuzzy dedup at Jaccard thresholds 0.6, 0.7, 0.8, 0.9
 6. Re-measure topic entropy per domain after each threshold
 7. Compare coverage loss curves across domains to quantify asymmetry
 
-## Classifier
+## Legal detection
 
-The classifier's job: given a page, decide if it's an actual legal document (a statute, bill, regulation, or court opinion with the text on the page itself), not a page that just links to one. It's a TF-IDF (word 1-2 grams) + logistic regression model over the page's extracted text, trained on ~4,600 hand-labeled pages across 42 legal-bearing domains.
+A page counts as legal only if the page itself carries the text of a statute, bill, regulation, filing, or court opinion, published by a primary source (court, legislature, agency, or established legal publisher). Commentary, news, law-firm pages, and index pages that only link to the text don't count.
 
-The classifier only scores pages that already sit on an authority-enumerated list of legal publishers (courts, legislatures), not random pages pulled from the open web. On those domains, about 1 in 3 pages is legal, so its hits are reliable. Scored against the whole crawl instead, legal pages are only about 1 in 800 (measured at 0.12%), so even a fairly accurate model returns mostly wrong hits: precision stayed below 0.7 at any usable recall.
+Detection is a two-stage cascade:
 
-**Performance**, measured on a stratified hand-labeled sample of 250 pages drawn from inside the legal domains (2026-09-08):
+- **Jev decides.** An LLM classifier ([TypeSafe](https://typesafe.ai) Jev), asked one yes/no question with the full definition above, one page per request. A page is legal if Jev scores it at **J = 0.90** or higher. On a uniform open-web draw, all 160 pages above that cut were hand-verified legal (precision 95% CI [0.977, 1.0]); precision falls to about 0.89 by 0.60.
+- **TF-IDF screens.** The older TF-IDF + logistic regression model runs first, only to cut the number of Jev calls. Its precision doesn't matter, only its recall: a legal page it rejects never reaches Jev. T starts at **0.37**, the lowest TF-IDF score among the Jev-accepted legal pages, so nothing measured is lost there.
 
-| threshold | precision | contamination | recall |
-|---|---|---|---|
-| 0.60 | 0.911 | 8.9% | 0.770 |
-| **0.75 (operating)** | **0.953** | **4.7%** | **0.602** |
-| 0.85 | 0.980 | 2.0% | 0.418 |
+**Choosing T.** Quality filters and TF-IDF run over the whole sample first (both local, free). The Jev cost at each T is then known before any Jev call, and T is set to the lowest value that fits the budget (~$50). Once T is used on the corpus it is frozen.
 
-Contamination is the share of kept pages that are actually non-legal. At crawl scale, the 0.75 threshold keeps ~140k pages, ~134k of them legal.
+| T | legal lost (of 160) | Jev cost, 100k legal docs |
+|---|---|---|
+| **0.37** | 0 | $66–85 |
+| 0.40 | 1 | $54–69 |
+| 0.45 | 3 | $38–49 |
+| 0.50 | 5 | $29–38 |
 
-Closed as of 2026-09-08. Full design history, the dropped rule-based and URL-only approaches, and every intermediate number: [`src/classifier/README.md`](src/classifier/README.md).
+Cost ranges run from the measured token rate to a pessimistic bound; real cost should land lower, since quality filters shrink both page count and text before Jev sees it. About 0.16% of crawl pages come out legal.
+
+**Caveat.** TF-IDF misses short documents first (single-section statutes and regulations), so every step up from 0.37 skews the legal corpus slightly toward longer documents. No document type drops out anywhere on this ladder.
+
+Full design history, the dropped rule-based and URL-only approaches, the original TF-IDF evaluation, and every intermediate number: [`src/classifier/README.md`](src/classifier/README.md).
 
 ## Code
 

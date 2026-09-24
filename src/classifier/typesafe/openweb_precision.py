@@ -66,7 +66,7 @@ SEED   = 42   # same as fetch_flagged_urls, so a draw from the same pool is the 
 # did not isolate docs[i]: an office-chair listing packed next to a Vermont
 # statute came back 0.84, and statutes in packed requests scored 0.83 where
 # the same kind of page alone scores 0.97. Five of 175 requests held 60% of
-# the yes calls. That pass is kept as jev_openweb_scores.packed.jsonl.
+# the yes calls. That pass was deleted.
 STATE_TOKENS = 0
 
 # Jev's cap is 1,200 requests/min. Single-doc requests make the cap the

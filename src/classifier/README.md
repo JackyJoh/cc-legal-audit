@@ -1,8 +1,56 @@
 # Legal-document classifier
 
-Sources the legal and general-web buckets used by the audit (see the [top-level README](../../README.md)) and classifies page type within the legal bucket. Closed as of 2026-09-08 at an operating threshold of 0.75 (0.953 precision, measured). Kept here as the design record: why the rule-based and URL-only approaches were dropped, why sourcing pivoted from open-web classification to publisher enumeration, and every measurement behind the final threshold.
+Decides which Common Crawl pages are legal documents, for the audit described in the [top-level README](../../README.md).
 
-**What shipped:** TF-IDF over word 1-2 grams of the extracted page body, logistic regression, scoring only pages that already sit on an authority-enumerated legal publisher. Two earlier approaches were tried and dropped; they are written up under [Approaches that were dropped](#approaches-that-were-dropped) rather than here, so this document reads forward from what works.
+**Current design (2026-09-24):** a two-stage cascade on the open web. Jev, an LLM classifier, makes the call; the TF-IDF model below only screens pages to cut Jev calls. See [Legal detection: Jev + TF-IDF screener](#legal-detection-jev--tf-idf-screener-2026-09-24).
+
+Everything after that section is the design record of the TF-IDF model, which was closed on 2026-09-08 as a standalone classifier over authority-enumerated publishers (0.953 precision at t=0.75). The model itself is unchanged; only its role is. Two earlier approaches were tried and dropped, under [Approaches that were dropped](#approaches-that-were-dropped).
+
+## Legal detection: Jev + TF-IDF screener (2026-09-24)
+
+**Why it changed.** TF-IDF alone could not hold precision on the open web (0.667 at best, [below](#testing-the-open-web-approach-precision-measured-then-rejected-2026-09-07)), which is what forced publisher-only sourcing. Jev holds precision at the open-web base rate, so the legal bucket can come from a uniform crawl sample instead.
+
+### How Jev was tested
+
+1. **Question.** `label_is_legal.py` sends the definition from `prompts/legal_url_labeling_task.md` verbatim, plus one page (URL and extracted text, first 20,000 chars). Jev answers one yes/no question per page and returns P(yes) as `p_legal`. Each row records the `jev_version` that answered.
+2. **One page per request.** A first pass packed ~40 pages per request, and Jev did not judge them independently: an office-chair listing next to a Vermont statute scored 0.84, and statutes scored 0.83 packed against 0.97 alone. That pass was discarded; everything below is single-page.
+3. **Sample.** `openweb_precision.py` drew 100k URLs uniformly from CC-MAIN-2026-12 (monolingual English), extracted them exactly as the training text was, and scored **97,485** with Jev.
+4. **Hand labels.** Every page at p ≥ 0.90 (160) and a 0.60-0.90 band (`build_band_batch.py`, 63 labeled) were hand-labeled against the definition, without seeing scores. 223 labels, 198 legal.
+
+**Precision** (`openweb_precision_report.py`, cumulative from the top, Wilson 95% CI):
+
+| J | kept | legal | precision | 95% CI |
+|---|---|---|---|---|
+| 0.60 | 223 | 198 | 0.888 | [0.840, 0.923] |
+| 0.70 | 204 | 193 | 0.946 | [0.906, 0.970] |
+| 0.80 | 187 | 185 | 0.989 | [0.962, 0.997] |
+| 0.85 | 176 | 175 | 0.994 | [0.969, 0.999] |
+| **0.90** | **160** | **160** | **1.000** | **[0.977, 1.000]** |
+
+**J = 0.90**, the highest-yield cut with no false positives. 160 of 97,485 pages makes the legal yield **0.164%** (95% CI lower bound 0.141%). This is a floor on the crawl's true legal share, since Jev's recall is not measured.
+
+**Training-set check.** Jev (single-page) over 1,191 training pages disagrees with the training labels on 2.77% (5 FP, 28 FN); the 5 FP are mostly Virginia `vacodefull` pages the training set likely mislabels. Those labels are LLM-produced, so this is a consistency check, not a precision number. Label noise that small does not explain TF-IDF's weakness; unseen publishers and short documents do.
+
+### TF-IDF as a screener
+
+TF-IDF runs first, locally and free, and only pages at or above T go to Jev. Its precision no longer matters; its recall does, since a legal page it rejects never reaches Jev. Recall is measured against the 160 Jev-accepted legal pages, all 97,485 pages scored with `models/text_clf.joblib`:
+
+| T | sent to Jev | legal lost (of 160) | Jev cost, 100k legal |
+|---|---|---|---|
+| **0.37** | 1.01% | 0 | $66-85 |
+| 0.40 | 0.79% | 1 | $54-69 |
+| 0.45 | 0.55% | 3 | $38-49 |
+| 0.50 | 0.42% | 5 | $29-38 |
+| 0.60 | 0.28% | 10 | $20-26 |
+| 0.75 | 0.17% | 39 | $17-22 |
+
+0.37 is the recall floor: the lowest TF-IDF score among the 160 (0.3711, a single-section Canadian regulation). Cost is from measured input tokens at $0.042/M. The low end uses the measured token rate and yield, the high end the dashboard token rate (10% higher) and the yield's lower bound. Pages that pass TF-IDF average ~2,600 tokens against ~1,600 for all pages.
+
+**Losses are short documents, not a register.** Every page lost up to T=0.60 is a single-section statute or regulation (Cornell CFR, WAC/RCW, Justice Laws sections) or a WIPO decision. No document type drops out anywhere up to 0.75. Raising T therefore skews the corpus toward longer documents, the same failure as [below](#deployment-precision-final-2026-09-08--classifier-closed).
+
+**Choosing T.** Quality filters and TF-IDF run over the whole sample first, which gives the exact Jev cost at every T before any call. T is the lowest value that fits the budget (~$50), starting at 0.37. Once T is applied to the corpus it is frozen. Real cost should land below the table, since quality filters remove pages and text before Jev.
+
+**Sourcing (planned, not yet run).** Random WARC files, drawn evenly across all 100 crawl segments and read whole. No index lookup is needed, because hosts are not clumped within files: in CC-MAIN-2026-12, 102k Wikipedia pages sit in 63k files, and 56k Cornell LII pages in 41k, both close to uniform scatter. Segments are clumpier (Virginia's legal site appears in 73 of 100), so files are drawn per segment. The English-only filter has to match the sample above for the 0.164% yield to carry over.
 
 ## Pipeline, in order
 
@@ -34,13 +82,15 @@ They are corrected rather than discarded, because they are useful hard negatives
 
 **7. Train.** `model/train_classifier.py --features text` → `models/text_clf.joblib` (gitignored, ~5s to rebuild).
 
-At this point there is a working model, and the last two stages are the ones that need one.
+At this point there is a working model, and every stage after this one needs it.
 
 **8. Mine hard negatives from the open web.** `fetch_flagged_urls.py` scores a uniform crawl draw with the step 7 model and keeps what it flags → `flagged_sample_batch.jsonl`, plus a separate scores file so the labeling agent never sees confidence. These labels are the fifth pass, so they re-enter at step 5: **steps 5 → 6 → 7 run a second time** with the flagged batch included, and that retrained model is the one used below. This is the only loop in the pipeline.
 
 **9. Measure deployment precision.** `fetch_legal_pool.py` reads `legal_domains.jsonl` from step 3 → `legal_pool.jsonl`, then `fetch_precision_sample.py` scores that pool with the retrained model and draws the 250-row batch, its scores, and per-stratum frame sizes into three separate files. Hand-label the batch, then `validation/precision_report.py` produces every number in [Deployment precision, final](#deployment-precision-final-2026-09-08--classifier-closed).
 
-So the full run is **1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → (5 → 6 → 7 again) → 9.** Every step runs in its listed order; steps 5-7 simply run twice, because the flagged batch cannot exist until a model does.
+**10. Jev on the open web.** `typesafe/openweb_precision.py` → `jev_openweb_scores.jsonl` and the hand-labeling file `jev_openweb_kept_full.jsonl`; `build_band_batch.py` adds the 0.60-0.90 band; `openweb_precision_report.py` reports precision. The step 7 model is reused unchanged as the screener. Details in [Legal detection](#legal-detection-jev--tf-idf-screener-2026-09-24).
+
+So the full run is **1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → (5 → 6 → 7 again) → 9 → 10.** Every step runs in its listed order; steps 5-7 simply run twice, because the flagged batch cannot exist until a model does.
 
 Where the five label passes come from:
 
@@ -56,7 +106,7 @@ Where the five label passes come from:
 
 ## Text classifier (bag of words on page text)
 
-This is the shipped model and the one used for the rest of this document: word 1-2 grams over the extracted page body, rather than over the URL string as the [superseded URL classifier](#url-classifier-superseded-2026-09-03) did, on the same labels and the same evaluation code. Page text carries cross-publisher signal that URL strings do not: statutory prose from Kansas reads like statutory prose from Florida, while `ksrevisor.gov` and `flsenate.gov` share nothing as strings.
+This is the TF-IDF model, now the screener ahead of Jev, and the one used for the rest of this document: word 1-2 grams over the extracted page body, rather than over the URL string as the [superseded URL classifier](#url-classifier-superseded-2026-09-03) did, on the same labels and the same evaluation code. Page text carries cross-publisher signal that URL strings do not: statutory prose from Kansas reads like statutory prose from Florida, while `ksrevisor.gov` and `flsenate.gov` share nothing as strings.
 
 **The model, exactly.** `features.py` holds the whole recipe, so the trainer and both evaluators cannot drift onto different settings.
 
@@ -86,7 +136,7 @@ Recall on unseen publishers goes from effectively zero to 0.825 at 0.901 precisi
 - `cornell.edu` is the weak publisher at 0.494 precision (t=0.60) against 0.64-1.00 elsewhere; a 50-word definition popup and a 60-word statute section look alike in bag of words.
 - The purity filter works on phrases but leaks on single words: `marginal`, `modified`, `note` survive on incidental cross-domain use. Filtering on domain *concentration* rather than count would fix it.
 - The positive class is register-narrow: 69% statute, 45% regulation (overlapping), 3.9% bills, 2.9% opinions. The 28 opinions sit almost entirely in cornell.edu (16) and judiciary.uk (10).
-- Label set is ~23% legal; the crawl is 0.12%. Precision does not transfer across that gap, only recall and FPR do. Measured separately below.
+- Label set is ~23% legal; the crawl is 0.12% by the early estimate (Jev's open-web run later measured at least 0.164%). Precision does not transfer across that gap, only recall and FPR do. Measured separately below.
 
 ### Bills batch (2026-09-07)
 
@@ -112,6 +162,8 @@ Three publishers hold 75% of the legal class. `domain_weights()` weights each ro
 
 ## Sourcing: why the legal bucket comes from publishers, not open-web detection
 
+> **Superseded 2026-09-24.** This argument holds for TF-IDF alone. Jev holds precision at the open-web base rate, so sourcing is back to the open web; see [Legal detection](#legal-detection-jev--tf-idf-screener-2026-09-24).
+
 The four sections below are one argument in order: the open-web approach was measured, an attempted fix failed, the base-rate math explained why, and the pivot followed from it.
 
 ### Testing the open-web approach: precision measured, then rejected (2026-09-07)
@@ -132,7 +184,7 @@ The false positives are one class, legal-sounding text written by a private part
 
 ### Attempted fix: retraining on the mined negatives (still open-web, still rejected)
 
-The obvious next step before abandoning the open-web approach: fold those 152 hand labels back into training as hard negatives. One retrain by design (4,490 rows, 1,014 legal). Macro LODO recall fell **0.399 to 0.375** on the 21 comparable publishers (eight down, thirteen held, none up); grouped-split precision rose at low thresholds (0.50: 0.457 to 0.492).
+The obvious next step before abandoning the open-web approach: fold those 152 labels (LLM-produced) back into training as hard negatives. One retrain by design (4,490 rows, 1,014 legal). Macro LODO recall fell **0.399 to 0.375** on the 21 comparable publishers (eight down, thirteen held, none up); grouped-split precision rose at low thresholds (0.50: 0.457 to 0.492).
 
 That is hard negatives working, buying precision with recall, and it was not enough. Rescoring the same 152 pages gives 0.711 at t=0.60, but they are in training now, so that is a memorisation ceiling, not a working boundary. The model still scores the tax-treaty site at 0.854 and the SEC exhibit at 0.829 with both in training, which says the class is not linearly separable from primary law here. This confirms retraining alone can't save the open-web approach; the base-rate math below shows why.
 
@@ -183,6 +235,8 @@ CourtListener's `url` field is wrong often enough to need a denylist: it points 
 
 ## Deployment precision, final (2026-09-08) — classifier closed
 
+> **Historical.** TF-IDF alone, inside authority domains. The operating threshold below no longer applies; TF-IDF is now a screener ahead of Jev, see [Legal detection](#legal-detection-jev--tf-idf-screener-2026-09-24).
+
 250 pages drawn from inside the legal domains and hand-labeled, in three score strata so the band above 0.85 gets a usable read regardless of how the pool skews. Each label is weighted by its stratum's frame size; intervals are a stratified bootstrap. `precision_report.py` produces all of it.
 
 | t | precision | 95% CI | contamination | recall | 95% CI | yield |
@@ -214,7 +268,7 @@ Kept as a record, and placed after the shipped design rather than before it. Bot
 
 Curated domain whitelist plus a hostname-keyword fallback, 88.4% recall against CourtListener bulk data. Dropped because both layers are hardcoded human judgments that have to be redone per snapshot, hostname matching cannot tell a homepage from a statute on the same domain, and a binary decision gives no confidence signal to trade precision against recall.
 
-**Dropped as a classifier, still live as a sampler.** `build_label_batch.py` imports `URL_Classifier` from this directory and reads `wl_candidates.txt` to build the `original` batch, so the archive is a runtime dependency of [step 1](#pipeline-in-order) rather than a dead reference. Nothing it decides reaches a label: the prefilter only raises legal density in the batch handed to the labeling agent, and every URL is still confirmed or rejected by hand.
+**Dropped as a classifier, still live as a sampler.** `build_label_batch.py` imports `URL_Classifier` from this directory and reads `wl_candidates.txt` to build the `original` batch, so the archive is a runtime dependency of [step 1](#pipeline-in-order) rather than a dead reference. Nothing it decides reaches a label: the prefilter only raises legal density in the batch handed to the labeling agent, and every URL is still confirmed or rejected by the labeling agent.
 
 ### URL classifier (superseded 2026-09-03)
 
@@ -231,6 +285,7 @@ samples/     draw URL samples from Common Crawl, build labeling batches
 labels/      merge raw labeling-agent output into clean label files
 model/       train, score and evaluate the TF-IDF/LR model
 validation/  score/sample the deployment distribution and report precision
+typesafe/    Jev labeling, open-web precision run and report
 archive/     superseded rule-based classifier, still imported by build_label_batch.py
 ```
 
@@ -245,7 +300,7 @@ Shared Common Crawl access (`athena.py`, WARC fetch/extract) lives in `../common
 - `build_legal_domains.py`: Merges the court and legislature host lists into `legal_domains.jsonl`, each row carrying the sampling unit correct for it, host for courts and registered domain for legislatures.
 - `count_domain_captures.py`: Ranks legal domains (courts and legislatures, from `legal_domains.jsonl`) by actual crawl depth, since docket/bill-record size and crawl coverage are uncorrelated.
 - `fetch_legal_pool.py`: Uniform random sample of eligible pages across the legal domains, the pool the precision sample is drawn from. Ordered by seeded hash, so a larger `--n` is a superset of a smaller one.
-- `fetch_precision_sample.py`: The hand-labeling batch, drawn as three score strata so the band above 0.85 gets a usable read whatever the pool's skew. Batch, scores and per-stratum frame sizes go to separate files; the labeling agent sees only the batch.
+- `fetch_precision_sample.py`: The hand-labeling batch, drawn as three score strata so the band above 0.85 gets a usable read whatever the pool's skew. Batch, scores and per-stratum frame sizes go to separate files; the labeler sees only the batch.
 - `fetch_cl_urls.py`: Per-publisher URL sample from Common Crawl for those hostnames. Writes `host_sample_batch.jsonl`.
 - `fetch_register_sources.py`: Asks Open States where each of the 50 states files its bills, reduced to site plus wildcard path (`/li/%/measures/%`). Touches neither Common Crawl nor the documents.
 - `fetch_bill_urls.py`: Turns those sections into a batch. One Athena query sorts every captured page `in` or `out` by path match, drops sites under 200 captured pages, takes a fixed quota each so a deeply-crawled state cannot dominate.
@@ -265,6 +320,13 @@ Shared Common Crawl access (`athena.py`, WARC fetch/extract) lives in `../common
 - `sample_deployment_validation.py`: Scores a pool, draws a uniform random sample of what clears the threshold for hand-labeling. Random rather than confidence-sorted, since the top of the ranking would flatter the estimate. Loads a saved model rather than fitting one, so a reported number always names the model that produced it.
 - `scan_domain_breakdown.py`: Groups flagged pages by registered domain. A model can hold good precision while firing on only two or three sites. Also loads a saved model rather than fitting one.
 - `precision_report.py`: The shipped metric. Joins the hand labels to their scores, weights each label by its stratum's frame size, and reports precision, contamination, recall and yield by threshold with bootstrap intervals, then projects them onto every eligible page in the crawl. Reads scores already produced by `score.py`; does not load a model itself.
+
+**`typesafe/`**
+- `label_is_legal.py`: Asks Jev the is-legal question per page. `--state-tokens 0` for one page per request. Importable; the open-web run uses it.
+- `openweb_precision.py`: Uniform open-web draw, fetched and scored by Jev, pages at p ≥ 0.90 written to a hand-labeling file with scores held separately.
+- `build_band_batch.py`: The 0.60-0.90 band as a second hand-labeling file.
+- `openweb_precision_report.py`: Precision at each J with Wilson intervals, from the two hand-labeled files only.
+- `eval_is_legal.py`: Jev's calls against any label file, by confidence band. Used for the training-set consistency check.
 
 **`archive/rule-based/`** — file inventory for the superseded classifier. Why it was dropped, and why it still runs as the `original` batch's prefilter, is under [Approaches that were dropped](#approaches-that-were-dropped).
 - `URL_Classifier.py` (whitelist then hostname keyword match), `WL_Builder.py` (discovers candidate domains via Athena for manual triage), `wl_candidates.txt`, `CC_Classifier_Test.py` (samples and classifies for manual review), `cl_validation_results.txt` (recall validation against CourtListener bulk data).
