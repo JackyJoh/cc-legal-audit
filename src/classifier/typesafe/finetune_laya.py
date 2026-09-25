@@ -7,6 +7,7 @@ sources, each with page text already on disk:
 
   TF-IDF training text   data/processed/labeled_text.jsonl + data/labels/jev_is_legal.jsonl
   legal sample (250)     data/candidates/legal_sample_text.jsonl + data/labels/jev_legal_sample.jsonl
+  legal pool (the rest)  data/candidates/legal_pool_text.jsonl + data/labels/jev_legal_pool.jsonl
   open web               data/candidates/_pool_text_cache.jsonl + data/labels/jev_openweb_scores.jsonl
 
 Held out entirely: every url in the two open-web hand-label files (the 223
@@ -28,8 +29,8 @@ weighted by --pos-weight. The whole model trains (421M, no LoRA).
 The shipped checkpoint scales noul logits by a fitted temperature (1.98).
 That was fitted to the old weights, so the saved config sets it to 1.0.
 
-Output: a folder laya.load() opens directly (weights, config, tokenizer),
-written after every epoch. Score it with:
+Output: a folder laya.load() opens directly (weights in bf16 unless --fp32,
+config, tokenizer), written after every epoch. Score it with:
   score_laya.py --model models/laya-legal --max-len 1024
 
 Runs in the laya environment:
@@ -46,12 +47,15 @@ import time
 
 HERE = os.path.dirname(__file__)
 sys.path.insert(0, HERE)
-from score_laya import (DEFAULT_INPUTS as TEST_FILES, MAX_CHARS, MODEL,  # noqa: E402
+from score_laya import (DEFAULT_INPUTS as TEST_FILES, MODEL,  # noqa: E402
                         QUESTIONS, iter_jsonl, state_for)
 
 SOURCES = [
     ("training", "data/processed/labeled_text.jsonl", "data/labels/jev_is_legal.jsonl"),
     ("legal_sample", "data/candidates/legal_sample_text.jsonl", "data/labels/jev_legal_sample.jsonl"),
+    # the rest of the legal-domain pool the 250 were drawn from; adds court-site
+    # positives (decisions were Laya's weak register) and in-domain index/status negatives
+    ("legal_pool", "data/candidates/legal_pool_text.jsonl", "data/labels/jev_legal_pool.jsonl"),
 ]
 OPENWEB_TEXT = "data/candidates/_pool_text_cache.jsonl"
 OPENWEB_JEV = "data/labels/jev_openweb_scores.jsonl"
@@ -106,8 +110,13 @@ def encode(agent, rows, max_len):
     return items
 
 
-def save(agent, out_dir):
-    """Weights + config + tokenizer/encoder dirs copied from the shipped snapshot."""
+def save(agent, out_dir, fp32=False):
+    """Weights + config + tokenizer/encoder dirs copied from the shipped snapshot.
+
+    Weights are written in bf16 (~850 MB) unless fp32: scoring already runs under bf16
+    autocast, and a bf16 copy of the first run scored 1,225 pages with 0 flips at 0.80 or
+    0.90 and a max difference of 0.0077 against fp32. The temperature buffer stays fp32."""
+    import torch
     from huggingface_hub import snapshot_download
     from safetensors.torch import save_file
     from laya.common import QTYPES
@@ -124,7 +133,12 @@ def save(agent, out_dir):
     cfg["fine_tuned"] = {"from": MODEL, "task": "is_legal distilled from jev-1.13.0"}
     with open(os.path.join(out_dir, "rl_agent_config.json"), "w") as f:
         json.dump(cfg, f, indent=2)
-    state = {k: v.detach().contiguous().cpu() for k, v in agent.model.state_dict().items()}
+    state = {}
+    for k, v in agent.model.state_dict().items():
+        v = v.detach().cpu()
+        if not fp32 and v.is_floating_point() and k != "temperature":
+            v = v.to(torch.bfloat16)
+        state[k] = v.contiguous()
     save_file(state, os.path.join(out_dir, "model.safetensors"))
 
 
@@ -140,6 +154,8 @@ def main():
     ap.add_argument("--lr", type=float, default=2e-5)
     ap.add_argument("--pos-weight", type=float, default=3.0, help="loss weight for rows Jev put at >= 0.5")
     ap.add_argument("--val-frac", type=float, default=0.05)
+    ap.add_argument("--fp32", action="store_true",
+                    help="save full-precision weights (~1.7 GB) instead of bf16 (~850 MB)")
     ap.add_argument("--no-grad-checkpoint", action="store_true",
                     help="skip gradient checkpointing: ~20-30%% faster, more GPU memory")
     args = ap.parse_args()
@@ -250,7 +266,7 @@ def main():
         vl, va = evaluate()
         print(f"  end of epoch {epoch + 1}: val loss {vl:.4f}, agrees with Jev at 0.90 on {va:.1%}")
         model.eval()
-        save(agent, args.out)
+        save(agent, args.out, fp32=args.fp32)
         model.train()
         print(f"  saved {args.out}")
 

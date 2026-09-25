@@ -52,6 +52,38 @@ TF-IDF runs first, locally and free, and only pages at or above T go to Jev. Its
 
 **Sourcing (planned, not yet run).** Random WARC files, drawn evenly across all 100 crawl segments and read whole. No index lookup is needed, because hosts are not clumped within files: in CC-MAIN-2026-12, 102k Wikipedia pages sit in 63k files, and 56k Cornell LII pages in 41k, both close to uniform scatter. Segments are clumpier (Virginia's legal site appears in 73 of 100), so files are drawn per segment. The English-only filter has to match the sample above for the 0.164% yield to carry over.
 
+### Local judge: Laya fine-tuned on Jev (in progress, 2026-09-25)
+
+Goal: replace Jev with free, local, pinned weights. [Laya](https://huggingface.co/convaiinnovations/laya) (ConvAI, Apache 2.0) is a 421M ModernBERT decision model with the same question/answer shape as Jev. It is fine-tuned to reproduce Jev's `p_legal` (distillation).
+
+**Environment** (separate from the project venv; torch must come from the CUDA index first or Windows gets a CPU build):
+```
+uv venv C:\projects\laya-env --python 3.12
+uv pip install --python C:\projects\laya-env\Scripts\python.exe torch --index-url https://download.pytorch.org/whl/cu128
+uv pip install --python C:\projects\laya-env\Scripts\python.exe laya==0.3.20
+```
+Base checkpoint: `convaiinnovations/laya`, snapshot `55cf4c4ebb4ebe31b2550e8bdf3bd21b99753851` (loaded by name, not yet pinned).
+
+**Steps.** Scripts in `typesafe/`; Jev steps run in the project venv, Laya steps in `laya-env`.
+1. Jev on the 250 legal sample. Its text is `legal_sample_text.jsonl`, the 250 urls' rows copied from `_legal_pool_text_cache.jsonl`. `label_is_legal.py --input data/candidates/legal_sample_text.jsonl --output data/labels/jev_legal_sample.jsonl --state-tokens 0`. Jev scored 3 pages hand-labeled non_legal at ≥ 0.95; on review they were statute text and were relabeled legal.
+2. Jev on the rest of the TF-IDF training text (`label_is_legal.py --state-tokens 0`, default in/out).
+3. `finetune_laya.py`: trains on Jev's scores from those two plus the open-web draw (every page at p ≥ 0.05 plus 20k random below), 25,464 rows, 933 at p ≥ 0.90. The 223 open-web hand labels are excluded. Defaults: max_len 1024, 2 epochs, lr 2e-5, effective batch 32, positive weight 3, weights saved in bf16 to `models/laya-legal` (gitignored).
+4. `score_laya.py --model models/laya-legal --max-len 1024`: the 223 hand labels.
+5. `build_laya_eval.py --unseen`, then `score_laya.py` on that list, then `build_laya_eval.py --spot-check`: every open-web page it never trained on.
+
+The question is the trimmed definition in `score_laya.py`: the LEGAL and NON_LEGAL paragraphs only, since Laya caps questions at 192 tokens and the definition goes in state.
+
+**Results** (223 hand labels, max_len 1024):
+
+| | zero-shot | fine-tuned | Jev |
+|---|---|---|---|
+| median p, legal / non_legal | 0.787 / 0.771 | 0.963 / 0.523 | |
+| kept at ≥ 0.90, precision | 0 | 161, 1.000 | 160, 1.000 |
+
+On the 76,142 unseen open-web pages, every page Laya kept at ≥ 0.80 (171) was already among the 223: precision 161/161 at 0.90, 170/171 at 0.80. Caveat: the open-web pages Jev scored 0.05-0.60 were all training negatives, so that band is not tested on unseen data. Recall against Jev: 12 of Jev's 160 keeps fall below 0.80 for Laya, 7 of them decisions (5 of 6 WIPO domain decisions), because only 26 of ~1,057 training positives come from court sites. Speed: ~72 pages/s on an RTX 5070 Ti at max_len 1024; bf16 weights score identically to fp32 (0 flips at 0.80/0.90 over 1,225 pages, max diff 0.008).
+
+**Next:** Jev on the 6,706 unused pages in `_legal_pool_text_cache.jsonl` (1,880 from court hosts), added as a training source, retrain, and rerun steps 4-5. The Laya cut is not chosen yet.
+
 ## Pipeline, in order
 
 The order things actually ran in, which is not the order the final design would suggest. [Code](#code) describes what each script does; this is only the sequence and what each stage hands to the next. Paths are relative to the repo root.
@@ -327,6 +359,9 @@ Shared Common Crawl access (`athena.py`, WARC fetch/extract) lives in `../common
 - `build_band_batch.py`: The 0.60-0.90 band as a second hand-labeling file.
 - `openweb_precision_report.py`: Precision at each J with Wilson intervals, from the two hand-labeled files only.
 - `eval_is_legal.py`: Jev's calls against any label file, by confidence band. Used for the training-set consistency check.
+- `score_laya.py`: Scores pages with Laya (shipped or fine-tuned, `--model`), prints precision next to Jev's on hand-labeled rows. Runs keyed by model and max_len in one output file.
+- `finetune_laya.py`: Distills Jev's scores into Laya; holds out the 223 open-web hand labels.
+- `build_laya_eval.py`: Lists the open-web pages Laya never trained on, then buckets Laya vs Jev keeps and writes unlabeled Laya keeps to a hand-labeling file.
 
 **`archive/rule-based/`** — file inventory for the superseded classifier. Why it was dropped, and why it still runs as the `original` batch's prefilter, is under [Approaches that were dropped](#approaches-that-were-dropped).
 - `URL_Classifier.py` (whitelist then hostname keyword match), `WL_Builder.py` (discovers candidate domains via Athena for manual triage), `wl_candidates.txt`, `CC_Classifier_Test.py` (samples and classifies for manual review), `cl_validation_results.txt` (recall validation against CourtListener bulk data).
