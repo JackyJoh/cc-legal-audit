@@ -20,25 +20,16 @@ Standard LLM pre-training pipelines apply a uniform Jaccard similarity threshold
 
 A page counts as legal only if the page itself carries the text of a statute, bill, regulation, filing, or court opinion, published by a primary source (court, legislature, agency, or established legal publisher). Commentary, news, law-firm pages, and index pages that only link to the text don't count.
 
-Detection is a two-stage cascade:
+Detection is a two-stage cascade, both stages local and free:
 
-- **Jev decides.** An LLM classifier ([TypeSafe](https://typesafe.ai) Jev), asked one yes/no question with the full definition above, one page per request. A page is legal if Jev scores it at **J = 0.90** or higher. On a uniform open-web draw, all 160 pages above that cut were hand-verified legal (precision 95% CI [0.977, 1.0]); precision falls to about 0.89 by 0.60.
-- **TF-IDF screens.** The older TF-IDF + logistic regression model runs first, only to cut the number of Jev calls. Its precision doesn't matter, only its recall: a legal page it rejects never reaches Jev. T starts at **0.37**, the lowest TF-IDF score among the Jev-accepted legal pages, so nothing measured is lost there.
+- **Laya decides.** A 421M open-weights decision model ([Laya](https://huggingface.co/convaiinnovations/laya)), fine-tuned to reproduce a commercial LLM classifier ([TypeSafe](https://typesafe.ai) Jev) on ~30k pages Jev scored against the definition above. A page is legal if Laya scores it at **0.85** or higher. On the ~76k open-web pages it never trained on, all 172 pages above that cut were hand-verified legal (precision 95% CI [0.978, 1.0]), matching Jev itself (160/160 at its 0.90 cut). Model and cut are frozen.
+- **TF-IDF screens.** The older TF-IDF + logistic regression model runs first, only to cut how many pages Laya has to score (~72 pages/s on one consumer GPU). Its precision doesn't matter, only its recall: a legal page it rejects never reaches Laya. T is the highest value that loses no known legal page (the lowest measured so far is 0.37), set once over the filtered sample and then frozen.
 
-**Choosing T.** Quality filters and TF-IDF run over the whole sample first (both local, free). The Jev cost at each T is then known before any Jev call, and T is set to the lowest value that fits the budget (~$50). Once T is used on the corpus it is frozen.
+About 0.16% of crawl pages come out legal.
 
-| T | legal lost (of 160) | Jev cost, 100k legal docs |
-|---|---|---|
-| **0.37** | 0 | $66–85 |
-| 0.40 | 1 | $54–69 |
-| 0.45 | 3 | $38–49 |
-| 0.50 | 5 | $29–38 |
+**Caveats.** Both stages lose short documents first (single-section statutes and regulations), which skews the legal corpus slightly toward longer documents. Laya is also weakest on decisions: of the legal pages Jev keeps, it misses some tribunal decisions (3 of 6 WIPO domain decisions in the test).
 
-Cost ranges run from the measured token rate to a pessimistic bound; real cost should land lower, since quality filters shrink both page count and text before Jev sees it. About 0.16% of crawl pages come out legal.
-
-**Caveat.** TF-IDF misses short documents first (single-section statutes and regulations), so every step up from 0.37 skews the legal corpus slightly toward longer documents. No document type drops out anywhere on this ladder.
-
-Full design history, the dropped rule-based and URL-only approaches, the original TF-IDF evaluation, and every intermediate number: [`src/classifier/README.md`](src/classifier/README.md).
+Full design history, how Jev and Laya were tested, the dropped rule-based and URL-only approaches, the original TF-IDF evaluation, and every intermediate number: [`src/classifier/README.md`](src/classifier/README.md).
 
 ## Code
 

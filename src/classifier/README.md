@@ -2,11 +2,13 @@
 
 Decides which Common Crawl pages are legal documents, for the audit described in the [top-level README](../../README.md).
 
-**Current design (2026-09-24):** a two-stage cascade on the open web. Jev, an LLM classifier, makes the call; the TF-IDF model below only screens pages to cut Jev calls. See [Legal detection: Jev + TF-IDF screener](#legal-detection-jev--tf-idf-screener-2026-09-24).
+**Current design (frozen 2026-09-25):** a two-stage cascade on the open web. [Laya fine-tuned on Jev](#local-judge-laya-fine-tuned-on-jev-frozen-2026-09-25-cut-085) makes the call at p ≥ 0.85; the TF-IDF model below only screens pages so Laya scores fewer. Jev, an LLM classifier, is Laya's teacher; how it was tested is in [Legal detection: Jev + TF-IDF screener](#legal-detection-jev--tf-idf-screener-2026-09-24).
 
 Everything after that section is the design record of the TF-IDF model, which was closed on 2026-09-08 as a standalone classifier over authority-enumerated publishers (0.973 precision at t=0.75). The model itself is unchanged; only its role is. Two earlier approaches were tried and dropped, under [Approaches that were dropped](#approaches-that-were-dropped).
 
 ## Legal detection: Jev + TF-IDF screener (2026-09-24)
+
+> Jev was the judge until 2026-09-25, when fine-tuned Laya replaced it ([below](#local-judge-laya-fine-tuned-on-jev-frozen-2026-09-25-cut-085)). Jev's tests here are what Laya is measured against; the cost figures no longer drive T.
 
 **Why it changed.** TF-IDF alone could not hold precision on the open web (0.667 at best, [below](#testing-the-open-web-approach-precision-measured-then-rejected-2026-09-07)), which is what forced publisher-only sourcing. Jev holds precision at the open-web base rate, so the legal bucket can come from a uniform crawl sample instead.
 
@@ -48,11 +50,13 @@ TF-IDF runs first, locally and free, and only pages at or above T go to Jev. Its
 
 **Losses are short documents, not a register.** Every page lost up to T=0.60 is a single-section statute or regulation (Cornell CFR, WAC/RCW, Justice Laws sections) or a WIPO decision. No document type drops out anywhere up to 0.75. Raising T therefore skews the corpus toward longer documents, the same failure as [below](#deployment-precision-final-2026-09-08--classifier-closed).
 
-**Choosing T.** Quality filters and TF-IDF run over the whole sample first, which gives the exact Jev cost at every T before any call. T is the lowest value that fits the budget (~$50), starting at 0.37. Once T is applied to the corpus it is frozen. Real cost should land below the table, since quality filters remove pages and text before Jev.
+**Choosing T.** With Laya as the judge, T only buys speed. It is set once over the filtered sample as the highest value that loses no known legal page, measured on the 160 open-web and the 250-sample positives (not the TF-IDF training set, which it scores optimistically), and frozen once applied. 0.37 is the floor measured so far.
 
 **Sourcing (planned, not yet run).** Random WARC files, drawn evenly across all 100 crawl segments and read whole. No index lookup is needed, because hosts are not clumped within files: in CC-MAIN-2026-12, 102k Wikipedia pages sit in 63k files, and 56k Cornell LII pages in 41k, both close to uniform scatter. Segments are clumpier (Virginia's legal site appears in 73 of 100), so files are drawn per segment. The English-only filter has to match the sample above for the 0.164% yield to carry over.
 
-### Local judge: Laya fine-tuned on Jev (in progress, 2026-09-25)
+### Local judge: Laya fine-tuned on Jev (frozen 2026-09-25, cut 0.85)
+
+**Frozen:** `models/laya-legal` (v2) at **p ≥ 0.85** is the final judge; Jev is its teacher. Neither the model nor the cut changes once used on the corpus.
 
 Goal: replace Jev with free, local, pinned weights. [Laya](https://huggingface.co/convaiinnovations/laya) (ConvAI, Apache 2.0) is a 421M ModernBERT decision model with the same question/answer shape as Jev. It is fine-tuned to reproduce Jev's `p_legal` (distillation).
 
@@ -67,22 +71,26 @@ Base checkpoint: `convaiinnovations/laya`, snapshot `55cf4c4ebb4ebe31b2550e8bdf3
 **Steps.** Scripts in `typesafe/`; Jev steps run in the project venv, Laya steps in `laya-env`.
 1. Jev on the 250 legal sample. Its text is `legal_sample_text.jsonl`, the 250 urls' rows copied from `_legal_pool_text_cache.jsonl`. `label_is_legal.py --input data/candidates/legal_sample_text.jsonl --output data/labels/jev_legal_sample.jsonl --state-tokens 0`. Jev scored 3 pages hand-labeled non_legal at ≥ 0.95; on review they were statute text and were relabeled legal.
 2. Jev on the rest of the TF-IDF training text (`label_is_legal.py --state-tokens 0`, default in/out).
-3. `finetune_laya.py`: trains on Jev's scores from those two plus the open-web draw (every page at p ≥ 0.05 plus 20k random below), 25,464 rows, 933 at p ≥ 0.90. The 223 open-web hand labels are excluded. Defaults: max_len 1024, 2 epochs, lr 2e-5, effective batch 32, positive weight 3, weights saved in bf16 to `models/laya-legal` (gitignored).
-4. `score_laya.py --model models/laya-legal --max-len 1024`: the 223 hand labels.
-5. `build_laya_eval.py --unseen`, then `score_laya.py` on that list, then `build_laya_eval.py --spot-check`: every open-web page it never trained on.
+3. Jev on the rest of the legal pool: `legal_pool_text.jsonl` is every page in `_legal_pool_text_cache.jsonl` not already Jev-scored and not in the 223 (6,706 pages, 1,880 from court hosts, all authority domains). `label_is_legal.py --input data/candidates/legal_pool_text.jsonl --output data/labels/jev_legal_pool.jsonl --state-tokens 0`; 1,846 at p ≥ 0.90.
+4. `finetune_laya.py`: trains on Jev's scores from those three plus the open-web draw (every page at p ≥ 0.05 plus 20k random below). The 223 open-web hand labels are excluded. Starts from the shipped checkpoint every run. Defaults: max_len 1024, 2 epochs, lr 2e-5, effective batch 32, positive weight 3, weights saved in bf16 to `models/laya-legal` (gitignored).
+5. `score_laya.py --model models/laya-legal --max-len 1024`: the 223 hand labels.
+6. `build_laya_eval.py --unseen`, then `score_laya.py` on that list, then `build_laya_eval.py --spot-check`: every open-web page it never trained on.
 
 The question is the trimmed definition in `score_laya.py`: the LEGAL and NON_LEGAL paragraphs only, since Laya caps questions at 192 tokens and the definition goes in state.
 
 **Results** (223 hand labels, max_len 1024):
 
-| | zero-shot | fine-tuned | Jev |
-|---|---|---|---|
-| median p, legal / non_legal | 0.787 / 0.771 | 0.963 / 0.523 | |
-| kept at ≥ 0.90, precision | 0 | 161, 1.000 | 160, 1.000 |
+| | zero-shot | v1 (without legal pool) | **v2 (frozen)** | Jev |
+|---|---|---|---|---|
+| median p, legal / non_legal | 0.787 / 0.771 | 0.963 / 0.523 | 0.964 / 0.481 | |
+| kept at ≥ 0.85, legal | 9, 9 | 165, 165 | **172, 172** | 176, 175 |
+| kept at ≥ 0.90, legal | 0 | 161, 161 | 164, 164 | 160, 160 |
 
-On the 76,142 unseen open-web pages, every page Laya kept at ≥ 0.80 (171) was already among the 223: precision 161/161 at 0.90, 170/171 at 0.80. Caveat: the open-web pages Jev scored 0.05-0.60 were all training negatives, so that band is not tested on unseen data. Recall against Jev: 12 of Jev's 160 keeps fall below 0.80 for Laya, 7 of them decisions (5 of 6 WIPO domain decisions), because only 26 of ~1,057 training positives come from court sites. Speed: ~72 pages/s on an RTX 5070 Ti at max_len 1024; bf16 weights score identically to fp32 (0 flips at 0.80/0.90 over 1,225 pages, max diff 0.008).
+On the 76,142 open-web pages v2 never trained on, every page it kept at ≥ 0.80 (180) was already among the 223, so precision is complete: **172/172 at 0.85** (Wilson 95% [0.978, 1.000]), 164/164 at 0.90, 179/180 at 0.80. The one error is a Cornell LII definition popup at 0.802. Caveat: the open-web pages Jev scored 0.05-0.60 were all training negatives, so that band is not tested on unseen data.
 
-**Next:** Jev on the 6,706 unused pages in `_legal_pool_text_cache.jsonl` (1,880 from court hosts), added as a training source, retrain, and rerun steps 4-5. The Laya cut is not chosen yet.
+Limitations (recall against Jev): 8 of Jev's 160 keeps fall below 0.80 for v2, down from 12 for v1: 3 of 6 WIPO domain decisions (5 for v1), the EU case-law page on judict.eu, a Utah water-rights decree, a Canada Gazette notice, and two short regulations (a Cornell CFR appendix, an Oklahoma rule). Decisions stay the weak register; v1 had only 26 of ~1,057 training positives from court sites, and the legal-pool pages narrowed the gap without closing it. Speed: ~72 pages/s on an RTX 5070 Ti at max_len 1024; bf16 weights score identically to fp32 (0 flips at 0.80/0.90 over 1,225 pages, max diff 0.008).
+
+**Cut: 0.85.** Same observed precision and lower bound as 0.90, eight more legal pages (~87% of the 198 known legal against ~83%), and the one error sits well below it at 0.802.
 
 ## Pipeline, in order
 
