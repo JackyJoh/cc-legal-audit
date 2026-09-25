@@ -23,7 +23,7 @@
 {"url": "https://billstatus.ls.state.ms.us/documents/2007/html/HB/0500-0599/HB0555PS.htm", "hint": "legal_domain_sample", "batch": "legal-precision-v1", "label": "legal"}
 {"url": "https://billstatus.ls.state.ms.us/documents/2007/html/SB/2500-2599/SB2565IN.htm", "hint": "legal_domain_sample", "batch": "legal-precision-v1", "label": "legal"}
 {"url": "https://codes.ohio.gov/ohio-administrative-code/chapter-4901:1-29", "hint": "legal_domain_sample", "batch": "legal-precision-v1", "label": "non_legal"}
-{"url": "https://codes.ohio.gov/ohio-revised-code/section-5747.21", "hint": "legal_domain_sample", "batch": "legal-precision-v1", "label": "non_legal"}
+{"url": "https://codes.ohio.gov/ohio-revised-code/section-5747.21", "hint": "legal_domain_sample", "batch": "legal-precision-v1", "label": "legal"}
 {"url": "https://docs.legis.wisconsin.gov/2005/related/acts/387/298", "hint": "legal_domain_sample", "batch": "legal-precision-v1", "label": "legal"}
 {"url": "https://docs.legis.wisconsin.gov/2021/related/acts/101/12", "hint": "legal_domain_sample", "batch": "legal-precision-v1", "label": "legal"}
 {"url": "https://docs.legis.wisconsin.gov/2025/proposals/reg/asm/bill/ab124", "hint": "legal_domain_sample", "batch": "legal-precision-v1", "label": "non_legal"}
@@ -34,7 +34,7 @@
 {"url": "https://docs.legis.wisconsin.gov/code/register/1996/488a/register/_1367", "hint": "legal_domain_sample", "batch": "legal-precision-v1", "label": "legal"}
 {"url": "https://docs.legis.wisconsin.gov/document/courts/2018%20WI%2074", "hint": "legal_domain_sample", "batch": "legal-precision-v1", "label": "non_legal"}
 {"url": "https://docs.legis.wisconsin.gov/document/courts/274%20Wis.%202d%2028", "hint": "legal_domain_sample", "batch": "legal-precision-v1", "label": "non_legal"}
-{"url": "https://docs.legis.wisconsin.gov/statutes/statutes/20/iv/395/1/bs", "hint": "legal_domain_sample", "batch": "legal-precision-v1", "label": "non_legal"}
+{"url": "https://docs.legis.wisconsin.gov/statutes/statutes/20/iv/395/1/bs", "hint": "legal_domain_sample", "batch": "legal-precision-v1", "label": "legal"}
 {"url": "https://docs.legis.wisconsin.gov/statutes/statutes/40/i/02/25/b/7", "hint": "legal_domain_sample", "batch": "legal-precision-v1", "label": "legal"}
 {"url": "https://docs.legis.wisconsin.gov/statutes/statutes/440/vi/62/4", "hint": "legal_domain_sample", "batch": "legal-precision-v1", "label": "legal"}
 {"url": "https://docs.legis.wisconsin.gov/statutes/statutes/48/xxi/99/5/g", "hint": "legal_domain_sample", "batch": "legal-precision-v1", "label": "legal"}
@@ -220,7 +220,7 @@
 {"url": "https://www.revisor.mn.gov/statutes/2011/cite/626.557/subd/626.557.9d", "hint": "legal_domain_sample", "batch": "legal-precision-v1", "label": "legal"}
 {"url": "https://www.revisor.mn.gov/statutes/2014/cite/99.28", "hint": "legal_domain_sample", "batch": "legal-precision-v1", "label": "non_legal"}
 {"url": "https://www.revisor.mn.gov/statutes/2016/cite/641.12", "hint": "legal_domain_sample", "batch": "legal-precision-v1", "label": "legal"}
-{"url": "https://www.revisor.mn.gov/statutes/2021/cite/245.4901/subd/245.4901.3", "hint": "legal_domain_sample", "batch": "legal-precision-v1", "label": "non_legal"}
+{"url": "https://www.revisor.mn.gov/statutes/2021/cite/245.4901/subd/245.4901.3", "hint": "legal_domain_sample", "batch": "legal-precision-v1", "label": "legal"}
 {"url": "https://www.revisor.mn.gov/statutes/2022/cite/354.55", "hint": "legal_domain_sample", "batch": "legal-precision-v1", "label": "legal"}
 {"url": "https://www.revisor.mn.gov/statutes/2023/cite/325F.69", "hint": "legal_domain_sample", "batch": "legal-precision-v1", "label": "legal"}
 {"url": "https://www.revisor.mn.gov/statutes/2024/cite/276A.09", "hint": "legal_domain_sample", "batch": "legal-precision-v1", "label": "legal"}

@@ -4,7 +4,7 @@ Decides which Common Crawl pages are legal documents, for the audit described in
 
 **Current design (2026-09-24):** a two-stage cascade on the open web. Jev, an LLM classifier, makes the call; the TF-IDF model below only screens pages to cut Jev calls. See [Legal detection: Jev + TF-IDF screener](#legal-detection-jev--tf-idf-screener-2026-09-24).
 
-Everything after that section is the design record of the TF-IDF model, which was closed on 2026-09-08 as a standalone classifier over authority-enumerated publishers (0.953 precision at t=0.75). The model itself is unchanged; only its role is. Two earlier approaches were tried and dropped, under [Approaches that were dropped](#approaches-that-were-dropped).
+Everything after that section is the design record of the TF-IDF model, which was closed on 2026-09-08 as a standalone classifier over authority-enumerated publishers (0.973 precision at t=0.75). The model itself is unchanged; only its role is. Two earlier approaches were tried and dropped, under [Approaches that were dropped](#approaches-that-were-dropped).
 
 ## Legal detection: Jev + TF-IDF screener (2026-09-24)
 
@@ -241,15 +241,15 @@ CourtListener's `url` field is wrong often enough to need a denylist: it points 
 
 | t | precision | 95% CI | contamination | recall | 95% CI | yield |
 |---|---|---|---|---|---|---|
-| 0.60 | 0.911 | [0.871, 0.946] | 8.9% | 0.770 | [0.645, 0.910] | 30.6% |
-| **0.75** | **0.953** | **[0.918, 0.986]** | **4.7%** | **0.602** | **[0.502, 0.722]** | **22.9%** |
-| 0.85 | 0.980 | [0.950, 1.000] | 2.0% | 0.418 | [0.351, 0.497] | 15.4% |
+| 0.60 | 0.926 | [0.891, 0.960] | 7.4% | 0.773 | [0.650, 0.912] | 30.6% |
+| **0.75** | **0.973** | **[0.946, 0.994]** | **2.7%** | **0.607** | **[0.507, 0.726]** | **22.9%** |
+| 0.85 | 0.990 | [0.970, 1.000] | 1.0% | 0.417 | [0.350, 0.494] | 15.4% |
 
-**Recall is the soft number here, precision the hard one.** The recall interval is about three times wider at every threshold, and structurally so rather than by bad luck: precision is decided by the pages the filter keeps, which sit in the two strata carrying 100 labels each, while recall is measured against the estimated legal count for the whole frame. 23% of that estimate (578 of 2,509 pages) comes from the 6 legal pages found in the low stratum, where one label stands for 96 pool pages. The same 6 rows set the 36.2% base rate below. Quote precision freely; treat recall as a band, not a point.
+**Recall is the soft number here, precision the hard one.** The recall interval is about three times wider at every threshold, and structurally so rather than by bad luck: precision is decided by the pages the filter keeps, which sit in the two strata carrying 100 labels each, while recall is measured against the estimated legal count for the whole frame. 23% of that estimate (578 of 2,541 pages) comes from the 6 legal pages found in the low stratum, where one label stands for 96 pool pages. The same 6 rows set the 36.6% base rate below. Quote precision freely; treat recall as a band, not a point.
 
-**Base rate inside these domains is 36.2%**, against 0.12% on the open web, so the pivot changed the problem by roughly 300x. Measured precision beats the grouped-split estimate (0.900 at 0.85) because deployment is in-domain while the grouped split holds whole publishers out.
+**Base rate inside these domains is 36.6%**, against 0.12% on the open web, so the pivot changed the problem by roughly 300x. Measured precision beats the grouped-split estimate (0.900 at 0.85) because deployment is in-domain while the grouped split holds whole publishers out.
 
-**Operating threshold: 0.75.** At scale that is 140,405 pages kept, **133,859 legal documents**, 6,546 false positives, and a false-positive rate of 1.67% of the 391,846 non-legal pages. Contamination is the number for corpus quality, FPR the number for filter behaviour.
+**Operating threshold: 0.75.** At scale that is 141,107 pages kept, **137,351 legal documents**, 3,757 false positives, and a false-positive rate of 0.96% of the 390,985 non-legal pages. Contamination is the number for corpus quality, FPR the number for filter behaviour.
 
 **The misses are short documents, not a random slice.** Legal pages at or above 0.85 run a median 1,108 words with 3% under 200; legal pages below it run a median 238 words with 37% under 200, the same length profile as the non-legal pages. At the margin this is partly a length detector, the short-document failure first seen on `cornell.edu`. Short and long documents carry different near-duplicate structure, so a threshold that preferentially drops short legal documents biases the corpus toward long ones, and that lands on ΔH. It gets worse as the threshold rises, which is a second argument for 0.75 over 0.85, and it belongs in limitations as a real confound.
 
