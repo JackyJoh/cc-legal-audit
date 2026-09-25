@@ -78,6 +78,17 @@ QUESTIONS = {
 }
 
 
+def state_for(url, text):
+    """What Laya reads per page. finetune_laya.py builds training inputs with this too."""
+    return {"definition": DEFINITION, "url": url, "text": text[:MAX_CHARS]}
+
+
+def model_key(model):
+    """A local folder is recorded as a normalized path so models\\x and models/x match;
+    a hub id is left alone."""
+    return os.path.normpath(model) if os.path.exists(model) else model
+
+
 def iter_jsonl(path):
     with open(path, encoding="utf-8") as f:
         for line in f:
@@ -118,25 +129,24 @@ def attach_text(rows, cache_path):
                 r["text"] = found[r["url"]]
 
 
-def score(rows, output, max_len, batch_size):
+def score(rows, output, max_len, batch_size, model):
     import laya                       # heavy; only needed when there is work to do
 
-    agent = laya.load(MODEL)
-    print(f"model {MODEL} on {agent.device}, max_len {max_len}, batch {batch_size}")
+    agent = laya.load(model)
+    print(f"model {model} on {agent.device}, max_len {max_len}, batch {batch_size}")
     t0, done = time.time(), 0
     chunk = batch_size * 8
     with open(output, "a", encoding="utf-8") as out:
         for i in range(0, len(rows), chunk):
             part = rows[i:i + chunk]
-            states = [{"definition": DEFINITION, "url": r["url"], "text": r["text"][:MAX_CHARS]}
-                      for r in part]
+            states = [state_for(r["url"], r["text"]) for r in part]
             results = agent.predict_batch(states, QUESTIONS, batch_size=batch_size,
                                           max_len=max_len, sort_by_length=len(part) > batch_size)
             for r, res in zip(part, results):
                 out.write(json.dumps({"url": r["url"],
                                       "p_legal": round(res["answers"]["is_legal"]["noul"], 4),
                                       "label": r.get("label"),
-                                      "model": MODEL, "max_len": max_len}) + "\n")
+                                      "model": model, "max_len": max_len}) + "\n")
             out.flush()
             done += len(part)
             rate = done / (time.time() - t0)
@@ -158,9 +168,9 @@ def precision_table(name, pairs):
         print(f"{t:>6.2f}{n:>7}{k:>8}{k / n:>11.4f}   [{lo:.4f}, {hi:.4f}]")
 
 
-def report(output, jev_scores, max_len):
+def report(output, jev_scores, max_len, model):
     laya_p = {r["url"]: (r["p_legal"], r.get("label")) for r in iter_jsonl(output)
-              if r.get("max_len") == max_len}
+              if r.get("max_len") == max_len and r.get("model", MODEL) == model}
     labeled = {u: lab == "legal" for u, (_, lab) in laya_p.items() if lab not in PLACEHOLDERS}
     if not labeled:
         print("\nno hand-labeled rows in the output, no precision table")
@@ -174,7 +184,7 @@ def report(output, jev_scores, max_len):
 
     print(f"median Laya p_legal: legal {med([laya_p[u][0] for u, l in labeled.items() if l]):.3f}"
           f"   non_legal {med([laya_p[u][0] for u, l in labeled.items() if not l]):.3f}")
-    precision_table(f"Laya (max_len {max_len})", [(laya_p[u][0], l) for u, l in labeled.items()])
+    precision_table(f"Laya {model} (max_len {max_len})",[(laya_p[u][0], l) for u, l in labeled.items()])
 
     if os.path.exists(jev_scores):
         jev = {r["url"]: r["p_legal"] for r in iter_jsonl(jev_scores)}
@@ -191,14 +201,17 @@ def main():
     ap.add_argument("--output", default=DEFAULT_OUTPUT)
     ap.add_argument("--text-cache", default=DEFAULT_TEXT_CACHE, help="jsonl of {url, text} for rows without text")
     ap.add_argument("--jev-scores", default=DEFAULT_JEV_SCORES, help="Jev scores to print alongside; ignored if missing")
+    ap.add_argument("--model", default=MODEL, help="hub id or a local folder from finetune_laya.py")
     ap.add_argument("--max-len", type=int, default=4096, help="token budget per page (Laya trained at 512)")
     ap.add_argument("--batch-size", type=int, default=8, help="pages per forward pass; lower if the GPU runs out of memory")
     args = ap.parse_args()
 
+    model = model_key(args.model)
     rows = load_rows(args.input)
     done = set()
     if os.path.exists(args.output):
-        done = {r["url"] for r in iter_jsonl(args.output) if r.get("max_len") == args.max_len}
+        done = {r["url"] for r in iter_jsonl(args.output)
+                if r.get("max_len") == args.max_len and r.get("model", MODEL) == model}
     rows = [r for r in rows if r["url"] not in done]
     attach_text(rows, args.text_cache)
     no_text = [r for r in rows if not r.get("text")]
@@ -207,8 +220,8 @@ def main():
 
     os.makedirs(os.path.dirname(args.output) or ".", exist_ok=True)
     if rows:
-        score(rows, args.output, args.max_len, args.batch_size)
-    report(args.output, args.jev_scores, args.max_len)
+        score(rows, args.output, args.max_len, args.batch_size, model)
+    report(args.output, args.jev_scores, args.max_len, model)
 
 
 if __name__ == "__main__":
