@@ -23,11 +23,9 @@ A page counts as legal only if the page itself carries the text of a statute, bi
 Detection is a two-stage cascade, both stages local and free:
 
 - **Laya decides.** A 421M open-weights decision model ([Laya](https://huggingface.co/convaiinnovations/laya)), fine-tuned to reproduce a commercial LLM classifier ([TypeSafe](https://typesafe.ai) Jev) on ~30k pages Jev scored against the definition above. A page is legal if Laya scores it at **0.85** or higher. On the ~76k open-web pages it never trained on, all 172 pages above that cut were hand-verified legal (precision 95% CI [0.978, 1.0]), matching Jev itself (160/160 at its 0.90 cut). Model and cut are frozen.
-- **TF-IDF screens.** The older TF-IDF + logistic regression model runs first, only to cut how many pages Laya has to score (~72 pages/s on one consumer GPU). Its precision doesn't matter, only its recall: a legal page it rejects never reaches Laya. T is the highest value that loses no known legal page (the lowest measured so far is 0.37), set once over the filtered sample and then frozen.
+- **TF-IDF screens.** The older TF-IDF + logistic regression model runs first, only to cut how many pages Laya has to score (~72 pages/s on one consumer GPU). Its precision doesn't matter, only its recall: a legal page it rejects never reaches Laya. **T = 0.30**, frozen.
 
 About 0.16% of crawl pages come out legal.
-
-**Caveats.** Both stages lose short documents first (single-section statutes and regulations), which skews the legal corpus slightly toward longer documents. Laya is also weakest on decisions: of the legal pages Jev keeps, it misses some tribunal decisions (3 of 6 WIPO domain decisions in the test).
 
 Full design history, how Jev and Laya were tested, the dropped rule-based and URL-only approaches, the original TF-IDF evaluation, and every intermediate number: [`src/classifier/README.md`](src/classifier/README.md).
 

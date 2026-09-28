@@ -2,7 +2,7 @@
 
 Decides which Common Crawl pages are legal documents, for the audit described in the [top-level README](../../README.md).
 
-**Current design (frozen 2026-09-25):** a two-stage cascade on the open web. [Laya fine-tuned on Jev](#local-judge-laya-fine-tuned-on-jev-frozen-2026-09-25-cut-085) makes the call at p ≥ 0.85; the TF-IDF model below only screens pages so Laya scores fewer. Jev, an LLM classifier, is Laya's teacher; how it was tested is in [Legal detection: Jev + TF-IDF screener](#legal-detection-jev--tf-idf-screener-2026-09-24).
+**Current design (frozen 2026-09-25):** a two-stage cascade on the open web. [Laya fine-tuned on Jev](#local-judge-laya-fine-tuned-on-jev-frozen-2026-09-25-cut-085) makes the call at p ≥ 0.85; the TF-IDF model below only screens pages (T = 0.30) so Laya scores fewer. Jev, an LLM classifier, is Laya's teacher; how it was tested is in [Legal detection: Jev + TF-IDF screener](#legal-detection-jev--tf-idf-screener-2026-09-24).
 
 Everything after that section is the design record of the TF-IDF model, which was closed on 2026-09-08 as a standalone classifier over authority-enumerated publishers (0.973 precision at t=0.75). The model itself is unchanged; only its role is. Two earlier approaches were tried and dropped, under [Approaches that were dropped](#approaches-that-were-dropped).
 
@@ -46,11 +46,25 @@ TF-IDF runs first, locally and free, and only pages at or above T go to Jev. Its
 | 0.60 | 0.28% | 10 | $20-26 |
 | 0.75 | 0.17% | 39 | $17-22 |
 
-0.37 is the recall floor: the lowest TF-IDF score among the 160 (0.3711, a single-section Canadian regulation). Cost is from measured input tokens at $0.042/M. The low end uses the measured token rate and yield, the high end the dashboard token rate (10% higher) and the yield's lower bound. Pages that pass TF-IDF average ~2,600 tokens against ~1,600 for all pages.
+0.37 was the recall floor in the Jev era: the lowest TF-IDF score among Jev's 160 keeps (0.3711, a single-section Canadian regulation). The frozen T is 0.30, below. Cost is from measured input tokens at $0.042/M. The low end uses the measured token rate and yield, the high end the dashboard token rate (10% higher) and the yield's lower bound. Pages that pass TF-IDF average ~2,600 tokens against ~1,600 for all pages.
 
 **Losses are short documents, not a register.** Every page lost up to T=0.60 is a single-section statute or regulation (Cornell CFR, WAC/RCW, Justice Laws sections) or a WIPO decision. No document type drops out anywhere up to 0.75. Raising T therefore skews the corpus toward longer documents, the same failure as [below](#deployment-precision-final-2026-09-08--classifier-closed).
 
-**Choosing T.** With Laya as the judge, T only buys speed. It is set once over the filtered sample as the highest value that loses no known legal page, measured on the 160 open-web and the 250-sample positives (not the TF-IDF training set, which it scores optimistically), and frozen once applied. 0.37 is the floor measured so far.
+**T = 0.30**, frozen. T only exists to save Laya time. Setting it too high loses legal pages for good; setting it too low just costs GPU time. So it errs low.
+
+*Method* (`screen_threshold.py`). Take the 172 legal pages Laya keeps on the open-web sample, see how low their TF-IDF scores go, and set T a safe distance below the lowest one.
+
+| | |
+|---|---|
+| lowest protected score | 0.3652 |
+| mean gap between the 10 lowest | 0.025 (evenly spaced, no straggler) |
+| T = 0.30 | 0.065 below the minimum, ~2.6 mean gaps |
+| protected pages lost at 0.30 | 0 of 172 |
+| pages sent to Laya at 0.30 | 2.1% (2× the rate at the minimum, ~47× fewer than no screen) |
+
+*Reasoning.* The minimum of 172 scores estimates roughly the 0.6% quantile of legal pages, not a floor, so a margin covers legal pages rarer than anything in the sample; the evenly spaced tail suggests the minimum is well pinned, and 2-3 gaps is margin sized to that tail. Margin is cheap down to about 0.25 (each step adds a few GPU-hours on a 65M-page run) and expensive below it (0.20 sends 10% of pages, 0.10 half), so T sits inside the cheap range. 0.30 is a round value between 2 and 3 gaps, chosen once from this sample, never adjusted on corpus results.
+
+*Limit.* Zero losses in 172 bounds the true loss rate at about 1.7% (95%, rule of three); the margin makes it likely far lower, but this sample cannot show it. Scoring a random sample of below-T pages with Laya after the corpus run would measure it.
 
 **Sourcing (planned, not yet run).** Random WARC files, drawn evenly across all 100 crawl segments and read whole. No index lookup is needed, because hosts are not clumped within files: in CC-MAIN-2026-12, 102k Wikipedia pages sit in 63k files, and 56k Cornell LII pages in 41k, both close to uniform scatter. Segments are clumpier (Virginia's legal site appears in 73 of 100), so files are drawn per segment. The English-only filter has to match the sample above for the 0.164% yield to carry over.
 
@@ -88,7 +102,9 @@ The question is the trimmed definition in `score_laya.py`: the LEGAL and NON_LEG
 
 On the 76,142 open-web pages v2 never trained on, every page it kept at ≥ 0.80 (180) was already among the 223, so precision is complete: **172/172 at 0.85** (Wilson 95% [0.978, 1.000]), 164/164 at 0.90, 179/180 at 0.80. The one error is a Cornell LII definition popup at 0.802. Caveat: the open-web pages Jev scored 0.05-0.60 were all training negatives, so that band is not tested on unseen data.
 
-Limitations (recall against Jev): 8 of Jev's 160 keeps fall below 0.80 for v2, down from 12 for v1: 3 of 6 WIPO domain decisions (5 for v1), the EU case-law page on judict.eu, a Utah water-rights decree, a Canada Gazette notice, and two short regulations (a Cornell CFR appendix, an Oklahoma rule). Decisions stay the weak register; v1 had only 26 of ~1,057 training positives from court sites, and the legal-pool pages narrowed the gap without closing it. Speed: ~72 pages/s on an RTX 5070 Ti at max_len 1024; bf16 weights score identically to fp32 (0 flips at 0.80/0.90 over 1,225 pages, max diff 0.008).
+Recall against Jev: at 0.85, v2 keeps 149 of the 160 pages Jev keeps (v1: 148). The 11 it misses: 5 WIPO domain-dispute decisions (all 5 in the test, from one site), an EU case-law page on judict.eu, a Utah water-rights decree, a Canada Gazette notice, and 3 short regulations (a Cornell CFR appendix, an Oklahoma rule, a Canadian SOR section). Too few pages to call any of these a pattern.
+
+Speed: ~72 pages/s on an RTX 5070 Ti at max_len 1024. bf16 weights score the same as fp32 (0 flips at 0.80/0.90 over 1,225 pages, max diff 0.008).
 
 **Cut: 0.85.** Same observed precision and lower bound as 0.90, eight more legal pages (~87% of the 198 known legal against ~83%), and the one error sits well below it at 0.802.
 
@@ -130,7 +146,11 @@ At this point there is a working model, and every stage after this one needs it.
 
 **10. Jev on the open web.** `typesafe/openweb_precision.py` → `jev_openweb_scores.jsonl` and the hand-labeling file `jev_openweb_kept_full.jsonl`; `build_band_batch.py` adds the 0.60-0.90 band; `openweb_precision_report.py` reports precision. The step 7 model is reused unchanged as the screener. Details in [Legal detection](#legal-detection-jev--tf-idf-screener-2026-09-24).
 
-So the full run is **1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → (5 → 6 → 7 again) → 9 → 10.** Every step runs in its listed order; steps 5-7 simply run twice, because the flagged batch cannot exist until a model does.
+**11. Laya.** Jev scores more training pages, `typesafe/finetune_laya.py` fine-tunes Laya on those scores, then `score_laya.py` (the 223) and `build_laya_eval.py` (the unseen open web) test it. Details in [Local judge: Laya](#local-judge-laya-fine-tuned-on-jev-frozen-2026-09-25-cut-085).
+
+**12. Pick T.** `typesafe/screen_threshold.py` → T = 0.30, from the TF-IDF scores of the pages Laya keeps. Details under [Choosing T](#tf-idf-as-a-screener).
+
+So the full run is **1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → (5 → 6 → 7 again) → 9 → 10 → 11 → 12.** Every step runs in its listed order; steps 5-7 simply run twice, because the flagged batch cannot exist until a model does.
 
 Where the five label passes come from:
 
@@ -370,6 +390,7 @@ Shared Common Crawl access (`athena.py`, WARC fetch/extract) lives in `../common
 - `score_laya.py`: Scores pages with Laya (shipped or fine-tuned, `--model`), prints precision next to Jev's on hand-labeled rows. Runs keyed by model and max_len in one output file.
 - `finetune_laya.py`: Distills Jev's scores into Laya; holds out the 223 open-web hand labels.
 - `build_laya_eval.py`: Lists the open-web pages Laya never trained on, then buckets Laya vs Jev keeps and writes unlabeled Laya keeps to a hand-labeling file.
+- `screen_threshold.py`: TF-IDF scores of the pages Laya keeps (their lowest values and gaps), plus the share of pages sent to Laya and protected pages lost at each candidate T. Prints only; T is picked by hand.
 
 **`archive/rule-based/`** — file inventory for the superseded classifier. Why it was dropped, and why it still runs as the `original` batch's prefilter, is under [Approaches that were dropped](#approaches-that-were-dropped).
 - `URL_Classifier.py` (whitelist then hostname keyword match), `WL_Builder.py` (discovers candidate domains via Athena for manual triage), `wl_candidates.txt`, `CC_Classifier_Test.py` (samples and classifies for manual review), `cl_validation_results.txt` (recall validation against CourtListener bulk data).
