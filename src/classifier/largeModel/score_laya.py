@@ -25,6 +25,10 @@ as for Jev. Rows with no text anywhere are counted and skipped.
 
 Resumable: urls already in --output are skipped.
 
+--screen T runs the cascade: pages scoring below T on the frozen TF-IDF
+model (models/text_clf.joblib) are dropped before Laya and get no row in
+--output. Needs scikit-learn 1.9.0, joblib and tldextract in the laya env.
+
 Runs in the laya environment (torch + laya), not the project venv:
   C:\\projects\\laya-env\\Scripts\\python.exe src/classifier/typesafe/score_laya.py
   ... --input a.jsonl b.jsonl --output out.jsonl --max-len 512
@@ -47,6 +51,7 @@ MODEL = "convaiinnovations/laya"
 MAX_CHARS = 20_000                     # same cut as label_is_legal.DEFAULT_MAX_CHARS
 PLACEHOLDERS = {None, "your_label"}
 THRESHOLDS = [0.60, 0.65, 0.70, 0.75, 0.80, 0.85, 0.90, 0.95, 0.99]
+TFIDF_MODEL = "models/text_clf.joblib"
 
 DEFINITION = (
     "LEGAL = the URL is from a source whose primary function is producing or "
@@ -129,6 +134,17 @@ def attach_text(rows, cache_path):
                 r["text"] = found[r["url"]]
 
 
+# cascade stage 1: keep only pages the TF-IDF model scores at or above t
+def screen(rows, t):
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "model"))
+    from features import legal_probs, load_bundle   # sklearn; only needed with --screen
+
+    probs = legal_probs(load_bundle(TFIDF_MODEL), [r["text"] for r in rows])
+    kept = [r for r, p in zip(rows, probs) if p >= t]
+    print(f"TF-IDF screen at {t}: {len(kept):,} of {len(rows):,} pages go to Laya")
+    return kept
+
+
 def score(rows, output, max_len, batch_size, model):
     import laya                       # heavy; only needed when there is work to do
 
@@ -204,6 +220,7 @@ def main():
     ap.add_argument("--model", default=MODEL, help="hub id or a local folder from finetune_laya.py")
     ap.add_argument("--max-len", type=int, default=4096, help="token budget per page (Laya trained at 512)")
     ap.add_argument("--batch-size", type=int, default=8, help="pages per forward pass; lower if the GPU runs out of memory")
+    ap.add_argument("--screen", type=float, help="TF-IDF threshold; pages below it skip Laya (frozen cascade: 0.30)")
     args = ap.parse_args()
 
     model = model_key(args.model)
@@ -217,6 +234,8 @@ def main():
     no_text = [r for r in rows if not r.get("text")]
     rows = [r for r in rows if r.get("text")]
     print(f"{len(rows):,} to score, {len(done):,} already in {args.output}, {len(no_text)} with no text (skipped)")
+    if rows and args.screen is not None:
+        rows = screen(rows, args.screen)
 
     os.makedirs(os.path.dirname(args.output) or ".", exist_ok=True)
     if rows:

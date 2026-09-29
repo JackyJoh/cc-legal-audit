@@ -10,6 +10,18 @@ Builds the two page sets for the MinHash pilot.
 Sites are hosts minus "www.". Legal sites and hosts on legal_domains.jsonl are
 excluded from the control.
 
+Where the control comes from: the Common Crawl index (Athena ccindex, snapshot
+CC-MAIN-2026-12), never a separate list. One query groups every eligible
+(English HTML, status 200) site by page count and drops the excluded ones; each
+legal site then takes the next seeded-random site in its own log2 depth bucket.
+A second query draws random pages from each control site, up to the matched
+legal site's page count, and returns their WARC pointers. This script downloads
+no page text; fetch_warc_text.py does that from the pointers.
+
+"Non-legal" means only "not on legal_domains.jsonl and not a pilot legal site".
+Control pages are not scored by Laya, so a legal page on an unlisted site can
+end up in the control.
+
 Writes to data/pilot/: legal_set.jsonl, control_pool.jsonl (with WARC
 pointers), control_sites.jsonl (the site matching).
 

@@ -4,7 +4,7 @@ Reports the MinHash pilot from the hand-labeled pair batch.
 Per set and Jaccard band: label counts and the share of pairs that are not the
 same document, counted two ways (different only; different + version), with
 Wilson 95% intervals. Then the legal - control gap, pooled over >= 0.7 (the
-main test) and at 0.6-0.7, with Newcombe 95% intervals.
+main test), with Newcombe 95% intervals. The 0.6-0.7 band is not drawn.
 
 Reads data/pilot/pair_batch.jsonl (labels) and pair_scores.jsonl.
 Prints only.
@@ -67,7 +67,10 @@ def main():
             ratio = f"{k / n:>11.0%}{f'[{lo:.2f}, {hi:.2f}]':>17}" if n else f"{'-':>11}{'-':>17}"
             print(f"  {name:<9}{b:>6.1f}{len(cell):>5}" + "".join(f"{c[l]:>11}" for l in LABELS) + ratio)
 
-    for title, bands in (("MAIN TEST, pooled >= 0.7", {0.7, 0.8, 0.9}), ("0.6-0.7", {0.6})):
+    n_auto = sum(1 for r in batch if r.get("auto"))
+    print(f"\n{n_auto} of those are identical-text pairs auto-labeled same")
+
+    for title, bands in (("MAIN TEST, pooled >= 0.7", {0.7, 0.8, 0.9}),):
         print(f"\n{title}: legal - control")
         for reading, hits in READINGS.items():
             k1, n1 = share([r for r in rows if r["set"] == "legal" and r["band"] in bands], hits)

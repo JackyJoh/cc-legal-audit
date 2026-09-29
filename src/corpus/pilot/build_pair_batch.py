@@ -1,23 +1,24 @@
 """
 Builds the hand-labeling batch for the MinHash pilot.
 
-Draws up to --per-band pairs per (set, Jaccard band) from pairs.jsonl, at most
---site-cap per site pair and one per page within a band, shuffles legal and
-control together, and shows each pair as a word diff: only what differs, with
-a few words of context.
+Draws up to --per-band pairs per (set, Jaccard band) from pairs.jsonl, bands
+--min-band (0.7) and up, at most --site-cap (10) per site pair and one per
+page within a band, shuffles legal and control together, and shows each pair
+as a word diff: only what differs, with a few words of context. Pairs whose
+text is identical are auto-labeled same (auto: true).
 
 Writes to data/pilot/:
-  pair_batch.jsonl   {pair, url_a, url_b, start, words_a, words_b, diff, label: ""}
+  pair_batch.jsonl   {pair, url_a, url_b, start, words_a, words_b, diff, label, auto}
   pair_scores.jsonl  {pair, set, band, jaccard, minhash, site_a, site_b}
 Labels: same / version / different / exclude. Scores stay out of the batch.
-Refuses to overwrite a batch that already has labels.
+When rebuilding over a labeled batch, hand labels carry over by URL pair;
+labels on pairs that leave the batch are dropped.
 """
 import argparse
 import difflib
 import hashlib
 import os
 import random
-import sys
 from collections import Counter, defaultdict
 
 from minhash_pairs import BANDS, OUTPUT as PAIRS, SETS, band_of
@@ -82,29 +83,45 @@ def draw(pairs, per_band, site_cap):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.strip().split("\n\n")[0])
     ap.add_argument("--per-band", type=int, default=30)
-    ap.add_argument("--site-cap", type=int, default=3)
+    ap.add_argument("--site-cap", type=int, default=10)
+    ap.add_argument("--min-band", type=float, default=0.7, help="lowest band drawn; the go rule is judged at >= 0.7")
     args = ap.parse_args()
 
-    if os.path.exists(BATCH) and any(r.get("label") for r in load_jsonl(BATCH)):
-        sys.exit(f"{BATCH} already has labels; move it aside before rebuilding")
+    # labels already given, keyed by URL pair, so a rebuild keeps them
+    old = {}
+    if os.path.exists(BATCH):
+        old = {frozenset((r["url_a"], r["url_b"])): r["label"]
+               for r in load_jsonl(BATCH) if r.get("label") and not r.get("auto")}
 
-    picked = draw(load_jsonl(PAIRS), args.per_band, args.site_cap)
+    pairs = [p for p in load_jsonl(PAIRS) if band_of(p["jaccard"]) >= args.min_band]
+    picked = draw(pairs, args.per_band, args.site_cap)
     random.Random(SEED).shuffle(picked)
 
     text = {r["url"]: r["text"] for path in SETS.values() for r in load_jsonl(path) if r.get("text")}
     batch, scores = [], []
     for i, p in enumerate(picked, 1):
         hunks, n_a, n_b = word_diff(text[p["url_a"]], text[p["url_b"]])
+        # identical text needs no judgment: same by the labeling rules
+        auto = not hunks
+        label = "same" if auto else old.get(frozenset((p["url_a"], p["url_b"])), "")
         batch.append({"pair": i, "url_a": p["url_a"], "url_b": p["url_b"],
                       "start": " ".join(text[p["url_a"]].split()[:START_WORDS]),
-                      "words_a": n_a, "words_b": n_b, "diff": hunks, "label": ""})
+                      "words_a": n_a, "words_b": n_b, "diff": hunks,
+                      "label": label, "auto": auto})
         scores.append({"pair": i, "set": p["set"], "band": band_of(p["jaccard"]),
                        "jaccard": p["jaccard"], "minhash": p["minhash"],
                        "site_a": p["site_a"], "site_b": p["site_b"]})
     write_jsonl(BATCH, batch)
     write_jsonl(SCORES, scores)
 
-    print(f"{len(batch)} pairs -> {BATCH} (scores -> {SCORES})\n")
+    print(f"{len(batch)} pairs -> {BATCH} (scores -> {SCORES})")
+    n_auto = sum(r["auto"] for r in batch)
+    print(f"  {n_auto} identical-text pairs auto-labeled same; "
+          f"{sum(not r['label'] for r in batch)} left to label")
+    if old:
+        kept = sum(1 for r in batch if r["label"] and not r["auto"])
+        print(f"  {kept} of {len(old)} hand labels carried over")
+    print()
     cells = Counter((s["set"], s["band"]) for s in scores)
     print(f"  {'set':<9}" + "".join(f"{f'{b:.1f}+':>7}" for b in BANDS))
     for name in SETS:
