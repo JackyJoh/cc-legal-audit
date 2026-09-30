@@ -1,18 +1,34 @@
 """
-Builds the hand-labeling batch for the MinHash pilot.
+Picks which near-duplicate pairs get hand-labeled, and prepares each one for
+reading.
 
-Draws up to --per-band pairs per (set, Jaccard band) from pairs.jsonl, bands
---min-band (0.7) and up, at most --site-cap (10) per site pair and one per
-page within a band, shuffles legal and control together, and shows each pair
-as a word diff: only what differs, with a few words of context. Pairs whose
-text is identical are auto-labeled same (auto: true).
+Draws up to --per-band (30) pairs per set per similarity range, from 0.7 up
+(--min-band). No site pair may supply more than --site-cap (10) in a range, so
+one site's template can't fill the batch, and no page appears twice in a
+range. Legal and control pairs are shuffled together.
 
-Writes to data/pilot/:
-  pair_batch.jsonl   {pair, url_a, url_b, start, words_a, words_b, diff, label, auto}
-  pair_scores.jsonl  {pair, set, band, jaccard, minhash, site_a, site_b}
-Labels: same / version / different / exclude. Scores stay out of the batch.
-When rebuilding over a labeled batch, hand labels carry over by URL pair;
-labels on pairs that leave the batch are dropped.
+Each pair is shown as a word diff: only what differs between the two pages,
+with a few words of context. Pairs whose text is identical are labeled same
+automatically (auto: true), since there is nothing to judge.
+
+Blind labeling. Whether a pair is legal or control, and its similarity, go to
+a separate file, so they can't sway the labels.
+
+Rebuilding over a labeled batch keeps the labels of pairs that are still in
+it; labels on pairs that drop out are lost.
+
+Usage:
+  python src/corpus/minhash_pilot/build_pair_batch.py
+
+Outputs (data/minhash_pilot/):
+  pair_batch.jsonl   the pairs to label: two URLs, opening words, word
+                     counts, the diff, and an empty label
+                     (same / version / different / exclude)
+  pair_scores.jsonl  the hidden half: each pair's set, similarity range,
+                     similarity and sites
+
+Next:
+  python src/corpus/minhash_pilot/label_pairs.py
 """
 import argparse
 import difflib

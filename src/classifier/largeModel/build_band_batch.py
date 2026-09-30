@@ -30,7 +30,7 @@ Outputs:
   data/candidates/jev_openweb_060_090_full.jsonl      {url, label: "your_label"}, to hand-label
 
 Usage:
-  python src/classifier/typesafe/build_band_batch.py
+  python src/classifier/largeModel/build_band_batch.py
 """
 import json
 

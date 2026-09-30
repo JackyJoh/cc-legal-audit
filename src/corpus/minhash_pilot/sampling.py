@@ -1,6 +1,19 @@
 """
-Shared pieces for the pilot samplers: site naming, eligibility, and the
-per-site random page draw.
+Shared settings and helpers so every pilot script samples pages the same way.
+
+Not run directly; the fetch scripts import it. It holds:
+
+  SNAPSHOT, SEED     the Common Crawl snapshot every draw uses, and the seed
+                     that makes every random draw repeatable
+  site_of()          what counts as a "site": a hostname without "www.", so
+                     www.att.com and att.com are one site
+  ELIGIBLE           what counts as a usable page: English HTML that was
+                     fetched successfully
+  pages_sql()        the Athena query that picks N random eligible pages from
+                     each of a list of sites, with where to fetch each one
+  one_capture_per_url()  keeps one copy of a URL the crawl fetched twice
+
+Outputs: none.
 """
 import json
 import os
@@ -12,7 +25,7 @@ from athena import sql_in_list  # noqa: E402
 
 SNAPSHOT = "CC-MAIN-2026-12"
 SEED     = "42"
-OUT_DIR  = "data/pilot"
+OUT_DIR  = "data/minhash_pilot"
 
 HTML_MIMES = ("'text/html'", "'application/xhtml+xml'")
 ELIGIBLE = ("fetch_status = 200 "

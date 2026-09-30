@@ -1,32 +1,37 @@
 """
-Builds the two page sets for the MinHash pilot.
+Decides which pages the pilot compares: the final legal pages, and a matched
+set of ordinary web pages to compare them against.
 
-  legal:   Laya v2 keeps (>= 0.85) from fetch_legal_pages.py's pool, trimmed
-           to each site's target so the mix matches open-web legal
-  control: non-legal pages, one random site per legal site, matched on crawl
-           depth and pages drawn. Matched by site because near-duplicates come
-           from shared site templates; a uniform draw would have almost none.
+Legal. The candidate pages Laya kept (p >= 0.85, after the TF-IDF screen),
+trimmed back to each site's target from fetch_legal_pages.py, so the mix of
+sites matches what Laya found on the open web.
 
-Sites are hosts minus "www.". Legal sites and hosts on legal_domains.jsonl are
-excluded from the control.
+Control. For each legal site, one random non-legal site of about the same size
+(pages in the crawl, within a factor of two), and the same number of pages
+drawn from it as its legal site contributed. Only the URLs are picked here;
+the text is fetched next.
 
-Where the control comes from: the Common Crawl index (Athena ccindex, snapshot
-CC-MAIN-2026-12), never a separate list. One query groups every eligible
-(English HTML, status 200) site by page count and drops the excluded ones; each
-legal site then takes the next seeded-random site in its own log2 depth bucket.
-A second query draws random pages from each control site, up to the matched
-legal site's page count, and returns their WARC pointers. This script downloads
-no page text; fetch_warc_text.py does that from the pointers.
+Why by site. Near-duplicates mostly come from one site reusing its own
+templates, so each legal site needs a comparable site on the other side. A
+random draw across the whole web would contain almost no near-duplicates.
 
-"Non-legal" means only "not on legal_domains.jsonl and not a pilot legal site".
-Control pages are not scored by Laya, so a legal page on an unlisted site can
-end up in the control.
+Non-legal. Means "not on data/candidates/legal_domains.jsonl and not one of
+the pilot's legal sites". Control pages are not scored by Laya, so a legal page
+on an unlisted site could end up in the control.
 
-Writes to data/pilot/: legal_set.jsonl, control_pool.jsonl (with WARC
-pointers), control_sites.jsonl (the site matching).
+Usage:
+  python src/corpus/minhash_pilot/fetch_control_pool.py
 
-Then: python src/common/fetch_warc_text.py --input data/pilot/control_pool.jsonl
-          --output data/pilot/control_text.jsonl
+Outputs (data/minhash_pilot/):
+  legal_set.jsonl      the final legal pages, with their text
+  control_pool.jsonl   control URLs, each with where to fetch it from Common
+                       Crawl; no text yet
+  control_sites.jsonl  which control site stands in for which legal site, and
+                       both sites' sizes
+
+Next:
+  python src/common/fetch_warc_text.py --input data/minhash_pilot/control_pool.jsonl
+      --output data/minhash_pilot/control_text.jsonl
 """
 import hashlib
 import math

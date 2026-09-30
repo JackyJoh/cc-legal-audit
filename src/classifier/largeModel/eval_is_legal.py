@@ -15,11 +15,11 @@ Two truth formats are accepted, since the project has both:
         data/validation/deployment_sample*.jsonl (hand-labeled rounds)
 
 Usage:
-    python src/classifier/typesafe/eval_is_legal.py
-    python src/classifier/typesafe/eval_is_legal.py --pred data/labels/other.jsonl
-    python src/classifier/typesafe/eval_is_legal.py --truth data/validation/deployment_sample.jsonl
-    python src/classifier/typesafe/eval_is_legal.py --bands 0.01 0.02 0.03 0.04 0.1 0.5
-    python src/classifier/typesafe/eval_is_legal.py --show-errors
+    python src/classifier/largeModel/eval_is_legal.py
+    python src/classifier/largeModel/eval_is_legal.py --pred data/labels/other.jsonl
+    python src/classifier/largeModel/eval_is_legal.py --truth data/validation/deployment_sample.jsonl
+    python src/classifier/largeModel/eval_is_legal.py --bands 0.01 0.02 0.03 0.04 0.1 0.5
+    python src/classifier/largeModel/eval_is_legal.py --show-errors
 
 Output is console only.
 """

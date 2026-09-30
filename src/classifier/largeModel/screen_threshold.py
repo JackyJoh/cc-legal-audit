@@ -3,8 +3,8 @@ Reports the tail of the TF-IDF score distribution over the pages Laya keeps,
 so T can be set by hand.
 
 Usage:
-  python src/classifier/typesafe/screen_threshold.py
-  python src/classifier/typesafe/screen_threshold.py --cache X --output Y
+  python src/classifier/largeModel/screen_threshold.py
+  python src/classifier/largeModel/screen_threshold.py --cache X --output Y
 
 Scores the open-web text cache with the frozen TF-IDF bundle and prints three
 tables:

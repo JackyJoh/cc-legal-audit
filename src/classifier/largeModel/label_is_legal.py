@@ -29,9 +29,9 @@ Resumable: URLs already in the output are skipped, and each request's answers
 are appended as soon as they land.
 
 Usage:
-    python src/classifier/typesafe/label_is_legal.py
-    python src/classifier/typesafe/label_is_legal.py --input some/other.jsonl --output out.jsonl
-    python src/classifier/typesafe/label_is_legal.py --state-tokens 0   # one page per request
+    python src/classifier/largeModel/label_is_legal.py
+    python src/classifier/largeModel/label_is_legal.py --input some/other.jsonl --output out.jsonl
+    python src/classifier/largeModel/label_is_legal.py --state-tokens 0   # one page per request
 
 Input:  JSONL with at least {"url": ..., "text": ...}
         default data/processed/labeled_text.jsonl

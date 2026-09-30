@@ -2,9 +2,12 @@
 Scores pages with Laya, an open-weights System One model (ModernBERT-large,
 421M) that runs locally, asking the same is-legal question Jev was asked.
 
-Laya is the local candidate to replace or distill Jev. This is the zero-shot
-baseline: the shipped checkpoint, no fine-tuning. Scores sit next to Jev's so
-the two precision tables can be read side by side on the same hand labels.
+Laya is the cascade's final judge: models/laya-legal, fine-tuned on Jev's
+scores (finetune_laya.py) and frozen with a keep cut of p >= 0.85. --model
+defaults to the shipped checkpoint (convaiinnovations/laya), the zero-shot
+baseline the fine-tune was compared against, so pass --model models/laya-legal
+for the frozen judge. Scores sit next to Jev's so the two precision tables can
+be read side by side on the same hand labels.
 
 The question. The definition goes into state, the way Jev received it, because
 Laya caps the question plus its options at 192 tokens. It is a shortened copy
@@ -25,12 +28,15 @@ as for Jev. Rows with no text anywhere are counted and skipped.
 
 Resumable: urls already in --output are skipped.
 
---screen T runs the cascade: pages scoring below T on the frozen TF-IDF
-model (models/text_clf.joblib) are dropped before Laya and get no row in
---output. Needs scikit-learn 1.9.0, joblib and tldextract in the laya env.
+Screen. By default this runs the frozen cascade: pages scoring below 0.30 on
+the TF-IDF model (models/text_clf.joblib) are dropped before Laya and get no
+row in --output. --no-screen scores every page; the classifier evaluations
+(the 223 hand labels, the unseen open web) were run that way, so rerun them
+with it. Screening needs scikit-learn 1.9.0, joblib and tldextract in the
+laya env.
 
 Runs in the laya environment (torch + laya), not the project venv:
-  C:\\projects\\laya-env\\Scripts\\python.exe src/classifier/typesafe/score_laya.py
+  C:\\projects\\laya-env\\Scripts\\python.exe src/classifier/largeModel/score_laya.py
   ... --input a.jsonl b.jsonl --output out.jsonl --max-len 512
 """
 import argparse
@@ -137,7 +143,7 @@ def attach_text(rows, cache_path):
 # cascade stage 1: keep only pages the TF-IDF model scores at or above t
 def screen(rows, t):
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "model"))
-    from features import legal_probs, load_bundle   # sklearn; only needed with --screen
+    from features import legal_probs, load_bundle   # sklearn; not needed with --no-screen
 
     probs = legal_probs(load_bundle(TFIDF_MODEL), [r["text"] for r in rows])
     kept = [r for r, p in zip(rows, probs) if p >= t]
@@ -220,7 +226,8 @@ def main():
     ap.add_argument("--model", default=MODEL, help="hub id or a local folder from finetune_laya.py")
     ap.add_argument("--max-len", type=int, default=4096, help="token budget per page (Laya trained at 512)")
     ap.add_argument("--batch-size", type=int, default=8, help="pages per forward pass; lower if the GPU runs out of memory")
-    ap.add_argument("--screen", type=float, help="TF-IDF threshold; pages below it skip Laya (frozen cascade: 0.30)")
+    ap.add_argument("--screen", type=float, default=0.30, help="TF-IDF threshold; pages below it skip Laya (frozen at 0.30)")
+    ap.add_argument("--no-screen", action="store_true", help="score every page, as the classifier evaluations were")
     args = ap.parse_args()
 
     model = model_key(args.model)
@@ -234,7 +241,7 @@ def main():
     no_text = [r for r in rows if not r.get("text")]
     rows = [r for r in rows if r.get("text")]
     print(f"{len(rows):,} to score, {len(done):,} already in {args.output}, {len(no_text)} with no text (skipped)")
-    if rows and args.screen is not None:
+    if rows and not args.no_screen:
         rows = screen(rows, args.screen)
 
     os.makedirs(os.path.dirname(args.output) or ".", exist_ok=True)

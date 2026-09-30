@@ -26,12 +26,12 @@ Two modes:
                 and, once labels exist, prints Laya's open-web precision.
 
 Runs in the laya environment:
-  python src/classifier/typesafe/build_laya_eval.py --unseen
-  python src/classifier/typesafe/score_laya.py --model models/laya-legal --max-len 1024 --batch-size 32 ^
+  python src/classifier/largeModel/build_laya_eval.py --unseen
+  python src/classifier/largeModel/score_laya.py --model models/laya-legal --max-len 1024 --batch-size 32 --no-screen ^
       --input data/candidates/laya_unseen_openweb.jsonl data/candidates/jev_openweb_kept_full.jsonl ^
               data/candidates/jev_openweb_060_090_full.jsonl ^
       --output data/candidates/laya_unseen_scores.jsonl
-  python src/classifier/typesafe/build_laya_eval.py --spot-check
+  python src/classifier/largeModel/build_laya_eval.py --spot-check
 """
 import argparse
 import json

@@ -82,13 +82,13 @@ uv pip install --python C:\projects\laya-env\Scripts\python.exe laya==0.3.20
 ```
 Base checkpoint: `convaiinnovations/laya`, snapshot `55cf4c4ebb4ebe31b2550e8bdf3bd21b99753851` (loaded by name, not yet pinned).
 
-**Steps.** Scripts in `typesafe/`; Jev steps run in the project venv, Laya steps in `laya-env`.
+**Steps.** Scripts in `largeModel/`; Jev steps run in the project venv, Laya steps in `laya-env`.
 1. Jev on the 250 legal sample. Its text is `legal_sample_text.jsonl`, the 250 urls' rows copied from `_legal_pool_text_cache.jsonl`. `label_is_legal.py --input data/candidates/legal_sample_text.jsonl --output data/labels/jev_legal_sample.jsonl --state-tokens 0`. Jev scored 3 pages hand-labeled non_legal at ≥ 0.95; on review they were statute text and were relabeled legal.
 2. Jev on the rest of the TF-IDF training text (`label_is_legal.py --state-tokens 0`, default in/out).
 3. Jev on the rest of the legal pool: `legal_pool_text.jsonl` is every page in `_legal_pool_text_cache.jsonl` not already Jev-scored and not in the 223 (6,706 pages, 1,880 from court hosts, all authority domains). `label_is_legal.py --input data/candidates/legal_pool_text.jsonl --output data/labels/jev_legal_pool.jsonl --state-tokens 0`; 1,846 at p ≥ 0.90.
 4. `finetune_laya.py`: trains on Jev's scores from those three plus the open-web draw (every page at p ≥ 0.05 plus 20k random below). The 223 open-web hand labels are excluded. Starts from the shipped checkpoint every run. Defaults: max_len 1024, 2 epochs, lr 2e-5, effective batch 32, positive weight 3, weights saved in bf16 to `models/laya-legal` (gitignored).
-5. `score_laya.py --model models/laya-legal --max-len 1024`: the 223 hand labels.
-6. `build_laya_eval.py --unseen`, then `score_laya.py` on that list, then `build_laya_eval.py --spot-check`: every open-web page it never trained on.
+5. `score_laya.py --model models/laya-legal --max-len 1024 --no-screen`: the 223 hand labels.
+6. `build_laya_eval.py --unseen`, then `score_laya.py --no-screen` on that list, then `build_laya_eval.py --spot-check`: every open-web page it never trained on.
 
 The question is the trimmed definition in `score_laya.py`: the LEGAL and NON_LEGAL paragraphs only, since Laya caps questions at 192 tokens and the definition goes in state.
 
@@ -144,11 +144,11 @@ At this point there is a working model, and every stage after this one needs it.
 
 **9. Measure deployment precision.** `fetch_legal_pool.py` reads `legal_domains.jsonl` from step 3 → `legal_pool.jsonl`, then `fetch_precision_sample.py` scores that pool with the retrained model and draws the 250-row batch, its scores, and per-stratum frame sizes into three separate files. Hand-label the batch, then `validation/precision_report.py` produces every number in [Deployment precision, final](#deployment-precision-final-2026-09-08--classifier-closed).
 
-**10. Jev on the open web.** `typesafe/openweb_precision.py` → `jev_openweb_scores.jsonl` and the hand-labeling file `jev_openweb_kept_full.jsonl`; `build_band_batch.py` adds the 0.60-0.90 band; `openweb_precision_report.py` reports precision. The step 7 model is reused unchanged as the screener. Details in [Legal detection](#legal-detection-jev--tf-idf-screener-2026-09-24).
+**10. Jev on the open web.** `largeModel/openweb_precision.py` → `jev_openweb_scores.jsonl` and the hand-labeling file `jev_openweb_kept_full.jsonl`; `build_band_batch.py` adds the 0.60-0.90 band; `openweb_precision_report.py` reports precision. The step 7 model is reused unchanged as the screener. Details in [Legal detection](#legal-detection-jev--tf-idf-screener-2026-09-24).
 
-**11. Laya.** Jev scores more training pages, `typesafe/finetune_laya.py` fine-tunes Laya on those scores, then `score_laya.py` (the 223) and `build_laya_eval.py` (the unseen open web) test it. Details in [Local judge: Laya](#local-judge-laya-fine-tuned-on-jev-frozen-2026-09-25-cut-085).
+**11. Laya.** Jev scores more training pages, `largeModel/finetune_laya.py` fine-tunes Laya on those scores, then `score_laya.py` (the 223) and `build_laya_eval.py` (the unseen open web) test it. Details in [Local judge: Laya](#local-judge-laya-fine-tuned-on-jev-frozen-2026-09-25-cut-085).
 
-**12. Pick T.** `typesafe/screen_threshold.py` → T = 0.30, from the TF-IDF scores of the pages Laya keeps. Details under [Choosing T](#tf-idf-as-a-screener).
+**12. Pick T.** `largeModel/screen_threshold.py` → T = 0.30, from the TF-IDF scores of the pages Laya keeps. Details under [Choosing T](#tf-idf-as-a-screener).
 
 So the full run is **1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → (5 → 6 → 7 again) → 9 → 10 → 11 → 12.** Every step runs in its listed order; steps 5-7 simply run twice, because the flagged batch cannot exist until a model does.
 
@@ -345,7 +345,7 @@ samples/     draw URL samples from Common Crawl, build labeling batches
 labels/      merge raw labeling-agent output into clean label files
 model/       train, score and evaluate the TF-IDF/LR model
 validation/  score/sample the deployment distribution and report precision
-typesafe/    Jev labeling, open-web precision run and report
+largeModel/  Jev labeling, open-web precision run and report
 archive/     superseded rule-based classifier, still imported by build_label_batch.py
 ```
 
@@ -381,7 +381,7 @@ Shared Common Crawl access (`athena.py`, WARC fetch/extract) lives in `../common
 - `scan_domain_breakdown.py`: Groups flagged pages by registered domain. A model can hold good precision while firing on only two or three sites. Also loads a saved model rather than fitting one.
 - `precision_report.py`: The shipped metric. Joins the hand labels to their scores, weights each label by its stratum's frame size, and reports precision, contamination, recall and yield by threshold with bootstrap intervals, then projects them onto every eligible page in the crawl. Reads scores already produced by `score.py`; does not load a model itself.
 
-**`typesafe/`**
+**`largeModel/`**
 - `label_is_legal.py`: Asks Jev the is-legal question per page. `--state-tokens 0` for one page per request. Importable; the open-web run uses it.
 - `openweb_precision.py`: Uniform open-web draw, fetched and scored by Jev, pages at p ≥ 0.90 written to a hand-labeling file with scores held separately.
 - `build_band_batch.py`: The 0.60-0.90 band as a second hand-labeling file.

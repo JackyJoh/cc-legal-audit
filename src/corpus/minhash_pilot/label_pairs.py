@@ -1,5 +1,5 @@
 """
-Terminal viewer for labeling data/pilot/pair_batch.jsonl.
+Terminal viewer for labeling data/minhash_pilot/pair_batch.jsonl.
 
 Shows one unlabeled pair at a time (URLs, word counts, opening text, word diff)
 and writes the label back to the file after every answer, so you can quit and
@@ -13,10 +13,17 @@ resume. Only pair_batch.jsonl is read; scores are never shown.
   h  help       print the labeling rules
   q  quit
 
-Labeling rules (fixed 2026-09-28, after pairs 1-8, which already fit them)
-are in RULES below and print at startup and on h.
+Labeling rules (fixed 2026-09-28, early in labeling; the pairs already
+labeled then fit them) are in RULES below and print at startup and on h.
 
-Run: python src/corpus/pilot/label_pairs.py [--relabel]
+Usage:
+  python src/corpus/minhash_pilot/label_pairs.py [--relabel]
+
+Outputs (data/minhash_pilot/):
+  pair_batch.jsonl   the same file, with each pair's label filled in
+
+Next:
+  python src/corpus/minhash_pilot/pilot_report.py
 """
 import argparse
 import json
@@ -138,7 +145,7 @@ def main():
     done = sum(1 for x in rows if x["label"])
     print(f"\n{done}/{len(rows)} labeled -> {BATCH}")
     if done == len(rows):
-        print("Next: python src/corpus/pilot/pilot_report.py")
+        print("Next: python src/corpus/minhash_pilot/pilot_report.py")
 
 
 if __name__ == "__main__":

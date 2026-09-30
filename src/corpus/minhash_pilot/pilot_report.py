@@ -1,13 +1,23 @@
 """
-Reports the MinHash pilot from the hand-labeled pair batch.
+Answers the pilot's question: when MinHash flags two pages as near-duplicates,
+how often are they actually different documents, for legal pages vs. ordinary
+web pages?
 
-Per set and Jaccard band: label counts and the share of pairs that are not the
-same document, counted two ways (different only; different + version), with
-Wilson 95% intervals. Then the legal - control gap, pooled over >= 0.7 (the
-main test), with Newcombe 95% intervals. The 0.6-0.7 band is not drawn.
+It joins the labels in pair_batch.jsonl to the hidden set and similarity in
+pair_scores.jsonl, then prints two things:
 
-Reads data/pilot/pair_batch.jsonl (labels) and pair_scores.jsonl.
-Prints only.
+  1. For each set and similarity range: how many pairs got each label, and the
+     share that are not real duplicates (labeled different or version), with a
+     95% confidence range.
+  2. The main result: that share for legal minus the share for control, across
+     all pairs at similarity 0.7 and up, with a 95% confidence range. It is
+     shown twice, once counting different only and once counting different
+     plus version.
+
+Usage:
+  python src/corpus/minhash_pilot/pilot_report.py
+
+Output is console only.
 """
 import math
 from collections import Counter

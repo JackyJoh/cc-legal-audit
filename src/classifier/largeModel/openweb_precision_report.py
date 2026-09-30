@@ -20,7 +20,7 @@ so t=0.90 here should reproduce that file's kept_full result exactly
 (160/160) once both bands are fully labeled.
 
 Usage:
-  python src/classifier/typesafe/openweb_precision_report.py
+  python src/classifier/largeModel/openweb_precision_report.py
 """
 import json
 import math

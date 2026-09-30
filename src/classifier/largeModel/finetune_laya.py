@@ -31,10 +31,10 @@ That was fitted to the old weights, so the saved config sets it to 1.0.
 
 Output: a folder laya.load() opens directly (weights in bf16 unless --fp32,
 config, tokenizer), written after every epoch. Score it with:
-  score_laya.py --model models/laya-legal --max-len 1024
+  score_laya.py --model models/laya-legal --max-len 1024 --no-screen
 
 Runs in the laya environment:
-  C:\\projects\\laya-env\\Scripts\\python.exe src/classifier/typesafe/finetune_laya.py
+  C:\\projects\\laya-env\\Scripts\\python.exe src/classifier/largeModel/finetune_laya.py
 """
 import argparse
 import json
@@ -271,7 +271,7 @@ def main():
         print(f"  saved {args.out}")
 
     print(f"\ndone in {(time.time() - t0) / 60:.0f} min. Test on the 223 hand labels:")
-    print(f"  python src/classifier/typesafe/score_laya.py --model {args.out} --max-len {args.max_len}")
+    print(f"  python src/classifier/largeModel/score_laya.py --model {args.out} --max-len {args.max_len} --no-screen")
 
 
 if __name__ == "__main__":

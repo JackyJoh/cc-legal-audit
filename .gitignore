@@ -17,9 +17,9 @@ data/candidates/_*cache*.jsonl
 data/processed/labeled_text.jsonl
 # MinHash pilot page text (~225MB), regenerate via src/common/fetch_warc_text.py
 # from the committed legal_pool.jsonl / control_pool.jsonl pointers, then
-# src/corpus/pilot/fetch_control_pool.py for legal_set.jsonl
-data/pilot/legal_pool_text.jsonl
-data/pilot/legal_set.jsonl
-data/pilot/control_text.jsonl
+# src/corpus/minhash_pilot/fetch_control_pool.py for legal_set.jsonl
+data/minhash_pilot/legal_pool_text.jsonl
+data/minhash_pilot/legal_set.jsonl
+data/minhash_pilot/control_text.jsonl
 # fitted models, ~5s to rebuild via src/classifier/model/train_classifier.py
 models/

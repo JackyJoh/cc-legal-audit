@@ -1,20 +1,30 @@
 """
-Samples candidate legal pages for the MinHash pilot, in the same site mix as
-open-web legal.
+Picks candidate legal URLs for the MinHash pilot: random pages from the sites
+where Laya (models/laya-legal) found legal text on the open web.
 
-Sites and their shares come from Laya v2's open-web keeps (p >= 0.85). Each
-site's target is --total x its share; --overdraw x that many random pages are
-drawn, since not every page on a site is legal. fetch_control_pool.py trims
-Laya's keeps back to each target.
+URLs only, no page text yet. The sites, and how many pages each gets, come
+from Laya's keeps (p >= 0.85) on the earlier open-web sample: 19 sites, each
+given its share of --total. If 20% of those keeps were on one site, that site
+gets 20% of the pages.
 
-Writes data/pilot/legal_pool.jsonl (url, site, target, WARC pointers).
+Why draw 3x. Not every page on a legal site is legal (index pages, news,
+help pages), so --overdraw 3 draws three times each site's target. Laya
+filters the extras out later, and fetch_control_pool.py trims what it keeps
+back to each site's target.
 
-Then:
-  python src/common/fetch_warc_text.py --input data/pilot/legal_pool.jsonl
-      --output data/pilot/legal_pool_text.jsonl
+Usage:
+  python src/corpus/minhash_pilot/fetch_legal_pages.py --total 5000
+
+Outputs (data/minhash_pilot/):
+  legal_pool.jsonl   candidate legal URLs, each with its site, the site's
+                     target, and where to fetch it from Common Crawl
+
+Next:
+  python src/common/fetch_warc_text.py --input data/minhash_pilot/legal_pool.jsonl
+      --output data/minhash_pilot/legal_pool_text.jsonl
   C:\\projects\\laya-env\\Scripts\\python.exe src/classifier/largeModel/score_laya.py
-      --model models/laya-legal --max-len 1024 --batch-size 2
-      --input data/pilot/legal_pool_text.jsonl --output data/pilot/laya_legal_scores.jsonl
+      --model models/laya-legal --max-len 1024 --screen 0.30
+      --input data/minhash_pilot/legal_pool_text.jsonl --output data/minhash_pilot/laya_legal_scores.jsonl
 """
 import argparse
 import os
