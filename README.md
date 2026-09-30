@@ -29,12 +29,17 @@ About 0.16% of crawl pages come out legal.
 
 Full design history, how Jev and Laya were tested, the dropped rule-based and URL-only approaches, the original TF-IDF evaluation, and every intermediate number: [`src/classifier/README.md`](src/classifier/README.md).
 
+## MinHash pilot
+
+Before the full run, a hand-inspected check of whether MinHash's legal near-duplicates are real copies or different documents with shared structure. Among pairs a 0.7 threshold would remove, 50% of legal pairs were distinct content against 19% of a size-matched control (+31 points): preliminary evidence of asymmetric deduplication. In this sample, most of that gap comes from one statute publisher, whose section pages show each section inside the surrounding chapter text, so neighbouring sections overlap and look like duplicates. That is the structure-driven confusion the pilot was built to detect, occurring on a real legal publisher; how common it is across legal publishers is more than a 110-pair sample can show. Result: go. Method, results and caveats: [`src/corpus/minhash_pilot/README.md`](src/corpus/minhash_pilot/README.md).
+
 ## Code
 
 ```
 src/
   common/      shared Common Crawl access: Athena querying, WARC fetch/extract
   classifier/  legal-document classifier: sourcing, labels, model, validation
+  corpus/      corpus building: Gopher filters, the MinHash pilot
 ```
 
 Details in [`src/classifier/README.md`](src/classifier/README.md).
