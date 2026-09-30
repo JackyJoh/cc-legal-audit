@@ -5,6 +5,10 @@ joblib
 tldextract
 requests
 warcio
+# URL filter (src/corpus/filters/url.py); pinned: its bundled word lists
+# change between versions
+datatrove==0.10.1
+pyahocorasick
 # pinned: 1.x and 2.x extract different text from the same HTML, and every
 # labeled_text.jsonl row records which version produced it
 trafilatura==2.2.0
