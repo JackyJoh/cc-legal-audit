@@ -109,7 +109,7 @@ def tfidf_init():
 
 
 # score one pages/ file's unlabeled pages:
-# (file, start time, general [(id, tfidf)], for Laya [(id, tfidf, url, text)])
+# (file, start time, seconds taken, general [(id, tfidf)], for Laya [(id, tfidf, url, text)])
 def tfidf_file(out, name, done):
     start = time.time()
     rows = [r for r in read_jsonl(f"{out}/pages/{name}.jsonl.gz") if r["id"] not in done]
@@ -121,7 +121,7 @@ def tfidf_file(out, name, done):
             to_laya.append((r["id"], p, r["url"], r["text"]))
         else:
             general.append((r["id"], p))
-    return name, start, general, to_laya
+    return name, start, time.time() - start, general, to_laya
 
 
 # laya thread: score queued pages in GPU batches, send labels to the writer
@@ -140,9 +140,11 @@ def laya_worker(agent, batch_size, laya_q, write_q, counts):
         stop = item is DONE
         if not batch:
             continue
+        start = time.time()
         states = [state_for(url, text) for _, _, _, url, text in batch]
         results = agent.predict_batch(states, QUESTIONS, batch_size=batch_size,
                                       max_len=MAX_LEN, sort_by_length=len(states) > batch_size)
+        counts["laya secs"] += time.time() - start
         for (name, pid, tfidf, _, _), res in zip(batch, results):
             p = round(res["answers"]["is_legal"]["noul"], 4)
             write_q.put((name, [(pid, tfidf, p, "legal" if p >= KEEP else "general")]))
@@ -192,9 +194,12 @@ def update_bars(bars, rows, counts, queued, expected, n_files, n_done):
     bars.update(t_tfidf, completed=screened, total=expected or None)
     bars.update(t_laya, completed=laya_done, total=to_laya or None)
     bars.update(t_written, completed=written, total=expected or None)
-    speed = {t.id: t.speed or 0 for t in bars.tasks}
-    bars.update(t_tfidf, info=f"{screened:,} / {expected:,}  {speed[t_tfidf]:,.0f}/s")
-    bars.update(t_laya, info=f"{laya_done:,} / {to_laya:,}  queue {queued:,}  {speed[t_laya]:,.0f}/s")
+    # speed while working, not counting time spent waiting for files: TF-IDF
+    # per process, Laya overall (one GPU)
+    tfidf_rate = screened / counts["tfidf secs"] if counts["tfidf secs"] else 0
+    laya_rate = laya_done / counts["laya secs"] if counts["laya secs"] else 0
+    bars.update(t_tfidf, info=f"{screened:,} / {expected:,}  {tfidf_rate:,.0f}/s each")
+    bars.update(t_laya, info=f"{laya_done:,} / {to_laya:,}  queue {queued:,}  {laya_rate:,.0f}/s")
     # legal share from fully labeled files only: general labels are written
     # right away while legal ones wait on Laya, so the running total reads low
     f_pages, f_legal = counts["finished pages"], counts["finished legal"]
@@ -250,7 +255,8 @@ def main():
                             skipped += 1
             # route finished TF-IDF results: general to the writer, the rest to Laya
             for job in [j for j in running if j.done()]:
-                name, start, general, to_laya = job.result()
+                name, start, secs, general, to_laya = job.result()
+                counts["tfidf secs"] += secs
                 n = len(general) + len(to_laya)
                 expected += n - running.pop(job)         # the estimate was kept minus labeled ids
                 write_q.put((EXPECT, name, n, len(to_laya), start))
