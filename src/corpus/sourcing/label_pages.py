@@ -50,6 +50,10 @@ import time
 from collections import Counter
 from concurrent.futures import ProcessPoolExecutor
 
+from rich.markup import escape
+from rich.progress import BarColumn, Progress, TaskProgressColumn, TextColumn, TimeRemainingColumn
+from rich.text import Text
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 for sub in ("../../classifier/largeModel", "../../classifier/model"):
     sys.path.insert(0, os.path.join(HERE, sub))
@@ -59,8 +63,10 @@ SCREEN  = 0.30                  # frozen TF-IDF cut
 KEEP    = 0.85                  # frozen Laya cut
 MODEL   = "models/laya-legal"
 MAX_LEN = 1024
-POLL    = 10                    # seconds between checks for new files and progress lines
+POLL    = 10                    # seconds between checks for new files
+REFRESH = 0.5                   # seconds between progress bar updates
 DONE    = None                  # queue item telling a thread to finish
+EXPECT  = "expect"              # writer queue item announcing a file's page count
 
 
 # rows of a .jsonl or .jsonl.gz file
@@ -84,10 +90,13 @@ def finished_files(out, known):
     return known
 
 
-# ids already in a file's labels, read once at startup
+# ids already in a file's labels, read once at startup, and how many of them are legal
 def labeled_ids(out, name):
     path = f"{out}/labels/{name}.jsonl"
-    return {r["id"] for r in read_jsonl(path)} if os.path.exists(path) else set()
+    if not os.path.exists(path):
+        return set(), 0
+    rows = list(read_jsonl(path))
+    return {r["id"] for r in rows}, sum(1 for r in rows if r["bucket"] == "legal")
 
 
 # the TF-IDF model, loaded once per worker process
@@ -99,8 +108,10 @@ def tfidf_init():
     _tfidf.update(bundle=load_bundle(TFIDF_MODEL, quiet=True), probs=legal_probs)
 
 
-# score one pages/ file's unlabeled pages: (file, general [(id, tfidf)], for Laya [(id, tfidf, url, text)])
+# score one pages/ file's unlabeled pages:
+# (file, start time, general [(id, tfidf)], for Laya [(id, tfidf, url, text)])
 def tfidf_file(out, name, done):
+    start = time.time()
     rows = [r for r in read_jsonl(f"{out}/pages/{name}.jsonl.gz") if r["id"] not in done]
     scores = _tfidf["probs"](_tfidf["bundle"], [r["text"] for r in rows]) if rows else []
     general, to_laya = [], []
@@ -110,7 +121,7 @@ def tfidf_file(out, name, done):
             to_laya.append((r["id"], p, r["url"], r["text"]))
         else:
             general.append((r["id"], p))
-    return name, general, to_laya
+    return name, start, general, to_laya
 
 
 # laya thread: score queued pages in GPU batches, send labels to the writer
@@ -139,15 +150,56 @@ def laya_worker(agent, batch_size, laya_q, write_q, counts):
     write_q.put(DONE)
 
 
-# writer thread, the only one that writes: append each label line to its file
-def write_worker(out, write_q, counts):
+# writer thread, the only one that writes: append each label line to its file.
+# Each file is announced (EXPECT) before its labels arrive; once all of them are
+# written, (file, pages, to Laya, legal, seconds) goes to finished_q
+def write_worker(out, write_q, counts, finished_q):
+    files = {}                                   # file -> [pages left, pages, to Laya, legal, start]
     while (item := write_q.get()) is not DONE:
-        name, labels = item
-        with open(f"{out}/labels/{name}.jsonl", "a", encoding="utf-8") as f:
-            for pid, tfidf, p, bucket in labels:
-                f.write(json.dumps({"id": pid, "tfidf": tfidf, "p_legal": p, "bucket": bucket}) + "\n")
+        if item[0] == EXPECT:
+            _, name, n, n_laya, start = item
+            files[name], labels = [n, n, n_laya, 0, start], []
+        else:
+            name, labels = item
+            with open(f"{out}/labels/{name}.jsonl", "a", encoding="utf-8") as f:
+                for pid, tfidf, p, bucket in labels:
+                    f.write(json.dumps({"id": pid, "tfidf": tfidf, "p_legal": p, "bucket": bucket}) + "\n")
+        legal = sum(1 for *_, b in labels if b == "legal")
         counts["written"] += len(labels)
-        counts["legal"] += sum(1 for *_, b in labels if b == "legal")
+        counts["legal"] += legal
+        f = files[name]
+        f[0] -= len(labels)
+        f[3] += legal
+        if f[0] == 0:
+            finished_q.put((name, f[1], f[2], f[3], time.time() - f[4]))
+            del files[name]
+
+
+# time left, shown only on rows added with eta=True
+class EtaColumn(TimeRemainingColumn):
+    def render(self, task):
+        return super().render(task) if task.fields.get("eta") else Text("")
+
+
+# one bar per stage: files fully labeled, TF-IDF, Laya, written; each stage
+# against the one before it
+def update_bars(bars, rows, counts, queued, expected, n_files, n_done):
+    t_files, t_tfidf, t_laya, t_written = rows
+    screened, to_laya, laya_done, written, legal = (
+        counts[k] for k in ("screened", "to laya", "laya done", "written", "legal"))
+    bars.update(t_files, description=f"files {n_done}/{n_files}", completed=n_done,
+                total=n_files or None, info=f"{written:,} pages")
+    bars.update(t_tfidf, completed=screened, total=expected or None)
+    bars.update(t_laya, completed=laya_done, total=to_laya or None)
+    bars.update(t_written, completed=written, total=expected or None)
+    speed = {t.id: t.speed or 0 for t in bars.tasks}
+    bars.update(t_tfidf, info=f"{screened:,} / {expected:,}  {speed[t_tfidf]:,.0f}/s")
+    bars.update(t_laya, info=f"{laya_done:,} / {to_laya:,}  queue {queued:,}  {speed[t_laya]:,.0f}/s")
+    # legal share from fully labeled files only: general labels are written
+    # right away while legal ones wait on Laya, so the running total reads low
+    f_pages, f_legal = counts["finished pages"], counts["finished legal"]
+    bars.update(t_written, info=f"{written:,}  legal {legal:,}"
+                                + (f" ({f_legal / f_pages:.3%} of finished files)" if f_pages else ""))
 
 
 def main():
@@ -163,44 +215,78 @@ def main():
     agent = laya.load(os.path.normpath(MODEL))
     print(f"Laya {MODEL} on {agent.device}, max_len {MAX_LEN}, batch {args.batch_size}")
 
-    counts, laya_q, write_q = Counter(), queue.Queue(), queue.Queue()
+    counts, laya_q, write_q, finished_q = Counter(), queue.Queue(), queue.Queue(), queue.Queue()
     threads = [threading.Thread(target=laya_worker, args=(agent, args.batch_size, laya_q, write_q, counts)),
-               threading.Thread(target=write_worker, args=(args.out, write_q, counts))]
+               threading.Thread(target=write_worker, args=(args.out, write_q, counts, finished_q))]
     for t in threads:
         t.start()
 
-    files, sent, running = {}, set(), []
-    with ProcessPoolExecutor(args.screen_workers, initializer=tfidf_init) as pool:
+    files, sent, running = {}, set(), {}         # running: TF-IDF job -> pages it was expected to have
+    earlier = {}                                 # file -> (labels from earlier runs, legal among them)
+    expected, n_files, n_done, skipped = 0, 0, 0, 0
+    last_scan, stopping = 0.0, False
+    columns = (TextColumn("{task.description}"), BarColumn(), TaskProgressColumn(),
+               TextColumn("{task.fields[info]}"), EtaColumn())
+    with ProcessPoolExecutor(args.screen_workers, initializer=tfidf_init) as pool, \
+         Progress(*columns, speed_estimate_period=60) as bars:
+        t_files   = bars.add_task("files 0/0", total=None, info="", eta=True)
+        t_tfidf   = bars.add_task("tfidf", total=None, info="")
+        t_laya    = bars.add_task("laya", total=None, info="")
+        t_written = bars.add_task("written", total=None, info="")
         while True:
             # hand each finished pages/ file to TF-IDF once per run, minus pages already labeled
-            for name, kept in sorted(finished_files(args.out, files).items()):
-                if name not in sent:
-                    sent.add(name)
-                    done = labeled_ids(args.out, name)
-                    if len(done) < kept:
-                        running.append(pool.submit(tfidf_file, args.out, name, done))
+            if not stopping and time.monotonic() - last_scan >= POLL:
+                last_scan = time.monotonic()
+                for name, kept in sorted(finished_files(args.out, files).items()):
+                    if name not in sent:
+                        sent.add(name)
+                        done, done_legal = labeled_ids(args.out, name)
+                        earlier[name] = (len(done), done_legal)
+                        if len(done) < kept:
+                            running[pool.submit(tfidf_file, args.out, name, done)] = kept - len(done)
+                            expected += kept - len(done)
+                            n_files += 1
+                        else:
+                            skipped += 1
             # route finished TF-IDF results: general to the writer, the rest to Laya
             for job in [j for j in running if j.done()]:
-                running.remove(job)
-                name, general, to_laya = job.result()
+                name, start, general, to_laya = job.result()
+                n = len(general) + len(to_laya)
+                expected += n - running.pop(job)         # the estimate was kept minus labeled ids
+                write_q.put((EXPECT, name, n, len(to_laya), start))
                 if general:
                     write_q.put((name, [(pid, p, None, "general") for pid, p in general]))
                 for pid, p, url, text in to_laya:
                     laya_q.put((name, pid, p, url, text))
-                counts["screened"] += len(general) + len(to_laya)
+                counts["screened"] += n
                 counts["to laya"] += len(to_laya)
-            print(f"  screened {counts['screened']:,} | to Laya {counts['to laya']:,} "
-                  f"(waiting {laya_q.qsize():,}) | written {counts['written']:,}, {counts['legal']:,} legal")
+            # files whose every label is written
+            while not finished_q.empty():
+                name, n, n_laya, legal, secs = finished_q.get()
+                n_done += 1
+                # whole file, including labels from earlier runs, so a resume doesn't skew the share
+                counts["finished pages"] += n + earlier[name][0]
+                counts["finished legal"] += legal + earlier[name][1]
+                bars.console.print(escape(f"  [{n_done}/{n_files}] {name[16:22]}-{name[-5:]}: {n:,} pages, "
+                                          f"{n_laya:,} to Laya, {legal:,} legal in {secs:.0f}s"))
+            update_bars(bars, (t_files, t_tfidf, t_laya, t_written), counts, laya_q.qsize(),
+                        expected, n_files, n_done)
 
-            # done when no TF-IDF work is left and (with --watch) sourcing has finished too
-            source_done = not args.watch or os.path.exists(f"{args.out}/source.done")
-            if not running and source_done and set(finished_files(args.out, files)) <= sent:
+            # once no TF-IDF work is left and (with --watch) sourcing has finished too,
+            # tell Laya to drain its queue and stop the writer; finish when the writer has
+            if not stopping:
+                source_done = not args.watch or os.path.exists(f"{args.out}/source.done")
+                if not running and source_done and set(finished_files(args.out, files)) <= sent:
+                    laya_q.put(DONE)
+                    stopping = True
+            elif not threads[1].is_alive():
                 break
-            time.sleep(POLL)
+            time.sleep(REFRESH)
 
-    laya_q.put(DONE)                                  # Laya drains its queue, then stops the writer
     for t in threads:
         t.join()
+    if skipped:
+        print(f"{skipped:,} files were already labeled")
     n, legal = counts["written"], counts["legal"]
     print(f"\nthis run: {n:,} pages labeled, {counts['to laya']:,} sent to Laya, {legal:,} legal"
           + (f" ({legal / n:.2%})" if n else ""))

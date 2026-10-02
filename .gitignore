@@ -23,3 +23,5 @@ data/minhash_pilot/legal_set.jsonl
 data/minhash_pilot/control_text.jsonl
 # fitted models, ~5s to rebuild via src/classifier/model/train_classifier.py
 models/
+# test pipeline run
+data/sample_source/
