@@ -49,6 +49,7 @@ import sys
 import threading
 import time
 from collections import Counter
+from datetime import timedelta
 from concurrent.futures import ProcessPoolExecutor
 
 from rich.markup import escape
@@ -215,6 +216,7 @@ def main():
     ap.add_argument("--batch-size", type=int, default=8, help="pages per GPU pass; lower if it runs out of memory")
     ap.add_argument("--watch", action="store_true", help="keep labeling new files until source_pages.py is done")
     args = ap.parse_args()
+    run_start = time.monotonic()                 # wall clock for the run, printed at the end
     os.makedirs(f"{args.out}/labels", exist_ok=True)
 
     import laya                                       # heavy; loaded once
@@ -297,6 +299,7 @@ def main():
     n, legal = counts["written"], counts["legal"]
     print(f"\nthis run: {n:,} pages labeled, {counts['to laya']:,} sent to Laya, {legal:,} legal"
           + (f" ({legal / n:.2%})" if n else ""))
+    print(f"took {timedelta(seconds=round(time.monotonic() - run_start))}")
 
 
 if __name__ == "__main__":

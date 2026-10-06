@@ -44,6 +44,7 @@ import json
 import os
 import time
 from concurrent.futures import ProcessPoolExecutor
+from datetime import timedelta
 
 import numpy as np
 from rich.markup import escape
@@ -97,6 +98,7 @@ def main():
     ap.add_argument("--workers", type=int, default=4, help="processes, one pages/ file each")
     ap.add_argument("--watch", action="store_true", help="keep fingerprinting new files until source_pages.py is done")
     args = ap.parse_args()
+    start = time.monotonic()                     # wall clock for the run, printed at the end
     os.makedirs(f"{args.out}/fingerprints", exist_ok=True)
 
     files, sent, running = {}, set(), set()
@@ -139,6 +141,7 @@ def main():
     if skipped:
         print(f"{skipped:,} files were already fingerprinted")
     print(f"\nthis run: {n_done:,} files, {pages:,} pages fingerprinted")
+    print(f"took {timedelta(seconds=round(time.monotonic() - start))}")
 
 
 if __name__ == "__main__":

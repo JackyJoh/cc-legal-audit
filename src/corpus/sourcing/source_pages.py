@@ -55,6 +55,7 @@ import random
 import sys
 import time
 from collections import Counter, defaultdict
+from datetime import timedelta
 from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 from multiprocessing import Manager
 
@@ -245,6 +246,7 @@ def main():
     ap.add_argument("--workers", type=int, default=2 * os.cpu_count(),
                     help="files processed at once; above the core count since downloads wait on the network")
     args = ap.parse_args()
+    start = time.monotonic()                     # wall clock for the run, printed at the end
 
     for d in ("pages", "dropped", "stats"):
         os.makedirs(f"{args.out}/{d}", exist_ok=True)
@@ -312,6 +314,7 @@ def main():
                 print(f"  {v:>10,}  {k}")
     if failed:
         print(f"\n{len(failed)} files failed; rerun to retry them")
+    print(f"took {timedelta(seconds=round(time.monotonic() - start))}")
     open(marker, "w").close()
 
 

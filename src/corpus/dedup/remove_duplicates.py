@@ -27,6 +27,8 @@ share), the number of groups and the biggest, groups mixing legal and general
 pages, and legal pages removed while a general page was kept.
 """
 import argparse
+import time
+from datetime import timedelta
 
 import numpy as np
 from rich.console import Console
@@ -81,6 +83,7 @@ def main():
     ap.add_argument("--out", default="data/source", help="source_pages.py's --out folder")
     ap.add_argument("--thresholds", type=float, nargs="+", default=THRESHOLDS)
     args = ap.parse_args()
+    start = time.monotonic()                     # wall clock for the run, printed at the end
     dedup = f"{args.out}/dedup"
 
     pages = np.load(f"{dedup}/pages.npy")
@@ -101,6 +104,7 @@ def main():
         save(f"{dedup}/removed_{t}.npy", rows)
         table.add_row(*report_row(t, pages, label, removed, kept))
     console.print(table)
+    console.print(f"took {timedelta(seconds=round(time.monotonic() - start))}")
 
 
 if __name__ == "__main__":

@@ -53,7 +53,9 @@ import gzip
 import json
 import os
 import sys
+import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from datetime import timedelta
 
 import numpy as np
 from rich.console import Console
@@ -272,6 +274,11 @@ def score_block(i, pairs, work):
     save(f"{work}/scores/{i:05d}.npy", np.array(found, PAIR))
 
 
+# wall-clock time since a monotonic() reading, as H:MM:SS
+def took(since):
+    return str(timedelta(seconds=round(time.monotonic() - since)))
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.strip().split("\n\n")[0])
     ap.add_argument("--out", default="data/source", help="source_pages.py's --out folder")
@@ -279,6 +286,7 @@ def main():
     ap.add_argument("--band-workers", type=int, default=8, help="band positions processed at once (~1 GB each per 60M pages)")
     ap.add_argument("--max-group", type=int, default=MAX_GROUP, help="stop if pages sharing one band value exceed this")
     args = ap.parse_args()
+    start = time.monotonic()                     # wall clock for the run; each step is timed too
 
     out, dedup = args.out, f"{args.out}/dedup"
     work = f"{dedup}/work"
@@ -292,12 +300,17 @@ def main():
         sys.exit(f"{len(missing):,} sourced files have no fingerprints; finish fingerprint.py first")
 
     console.print("[bold]1. load[/bold]")
+    step = time.monotonic()
     ids, text, bucket, offsets = step1(out, names)
+    console.print(f"  took {took(step)}")
 
     console.print("[bold]2. exact copies[/bold]")
+    step = time.monotonic()
     step2(ids, text, bucket, work, dedup)
+    console.print(f"  took {took(step)}")
 
     console.print("[bold]3. bands[/bold]")
+    step = time.monotonic()
     bands = run_pool("bands", band_pairs, [(b, out, names, work, args.max_group) for b in range(NUM_BANDS)],
                      args.band_workers)
     biggest = sorted(((k, b) for b, top, _ in bands for k in top), reverse=True)[:5]
@@ -309,8 +322,10 @@ def main():
     cands = merge_bands(work)
     save(f"{work}/candidate_ids.npy", np.unique(cands))
     console.print(f"  {len(cands):,} candidate pairs")
+    console.print(f"  took {took(step)}")
 
     console.print("[bold]4. exact scores[/bold]")
+    step = time.monotonic()
     run_pool("phrases", file_phrases, [(out, n, o, work) for n, o in zip(names, offsets)], args.workers)
     todo = [i for i in range(0, len(cands), BLOCK) if not os.path.exists(f"{work}/scores/{i // BLOCK:05d}.npy")]
     run_pool("scores", score_block, [(i // BLOCK, cands[i:i + BLOCK], work) for i in todo], args.workers,
@@ -318,10 +333,12 @@ def main():
     n_blocks = -(-len(cands) // BLOCK)
     pairs = np.concatenate([np.load(f"{work}/scores/{i:05d}.npy") for i in range(n_blocks)] or [np.empty(0, PAIR)])
     save(f"{dedup}/pairs.npy", pairs)
+    console.print(f"  took {took(step)}")
 
     console.print(f"\n{len(pairs):,} pairs scoring >= {MIN_SCORE} -> {dedup}/pairs.npy")
     for t in (0.6, 0.7, 0.8, 0.9):
         console.print(f"  >= {t}: {int((pairs['score'] >= t).sum()):,}")
+    console.print(f"took {took(start)}")
 
 
 if __name__ == "__main__":
