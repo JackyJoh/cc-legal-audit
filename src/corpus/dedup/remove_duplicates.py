@@ -1,5 +1,5 @@
 """
-Applies each similarity threshold to find_pairs.py's pairs: groups the pages
+Applies each similarity threshold to score_pairs.py's pairs: groups the pages
 connected through pairs at or above it, keeps one page per group, and lists the
 rest as removed. The cheap half of deduplication; rerun it freely.
 
@@ -15,24 +15,26 @@ Each page's rank is fixed, so a page kept at a lower threshold is also kept at
 every higher one: only the threshold changes what is removed.
 
 Usage:
-  python src/corpus/dedup/group_pairs.py --out data/dedup
+  python src/corpus/dedup/remove_duplicates.py --out data/source
 
-Reads (--out): pairs.npy and pages.npy, from find_pairs.py
+Reads (--out/dedup/): pairs.npy and pages.npy, from score_pairs.py
 
-Outputs (--out):
+Outputs (--out/dedup/):
   removed_0.8.npy   one file per threshold: each removed page's id, and the
                     id of the page kept in its group (kept_id)
-Prints per threshold: pages removed per bucket, the number of groups and the
-biggest, groups mixing legal and general pages, and legal pages removed while a
-general page was kept.
+Prints one table, a row per threshold: pages removed per bucket (count and
+share), the number of groups and the biggest, groups mixing legal and general
+pages, and legal pages removed while a general page was kept.
 """
 import argparse
 
 import numpy as np
+from rich.console import Console
+from rich.table import Table
 from scipy.sparse import coo_matrix
 from scipy.sparse.csgraph import connected_components
 
-from find_pairs import BUCKETS, save
+from score_pairs import BUCKETS, save
 from minhash import survivor_rank
 
 THRESHOLDS = (0.6, 0.7, 0.8, 0.9)
@@ -57,41 +59,48 @@ def group(pages, pairs, t):
     return label, order[~first], survivor[~first]
 
 
-# per-threshold summary, per bucket and for groups mixing buckets
-def report(t, pages, label, removed, kept):
+# one threshold's row of the summary table: removed per bucket (count and
+# share), groups, biggest group, groups mixing buckets, legal lost to general
+def report_row(t, pages, label, removed, kept):
     legal = pages["bucket"] == LEGAL
     sizes = np.bincount(label)
     legal_in = np.bincount(label, weights=legal)
     mixed = int(((legal_in > 0) & (legal_in < sizes)).sum())
-    for code, name in enumerate(BUCKETS):
+    row = [f"{t}"]
+    for code in range(len(BUCKETS)):
         total = int((pages["bucket"] == code).sum())
         gone = int((pages["bucket"][removed] == code).sum())
-        share = f"{gone / total:.1%}" if total else "-"
-        print(f"  {t:<11}{name:<9}{total:>12,}{gone:>12,}{share:>9}")
+        row.append(f"{gone:,}  ({gone / total:.1%})" if total else "-")
     lost_to_general = int((legal[removed] & ~legal[kept]).sum())
-    print(f"  {'':<11}{int((sizes > 1).sum()):,} groups (biggest {int(sizes.max(initial=0)):,} pages), "
-          f"{mixed:,} mixing legal and general; {lost_to_general:,} legal pages removed "
-          f"with a general page kept")
+    return row + [f"{int((sizes > 1).sum()):,}", f"{int(sizes.max(initial=0)):,}",
+                  f"{mixed:,}", f"{lost_to_general:,}"]
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.strip().split("\n\n")[0])
-    ap.add_argument("--out", default="data/dedup", help="find_pairs.py's --out folder")
+    ap.add_argument("--out", default="data/source", help="source_pages.py's --out folder")
     ap.add_argument("--thresholds", type=float, nargs="+", default=THRESHOLDS)
     args = ap.parse_args()
+    dedup = f"{args.out}/dedup"
 
-    pages = np.load(f"{args.out}/pages.npy")
+    pages = np.load(f"{dedup}/pages.npy")
     pages = pages[np.argsort(pages["id"])]          # sorted, so ids can be looked up
-    pairs = np.load(f"{args.out}/pairs.npy")
-    print(f"{len(pages):,} pages, {len(pairs):,} pairs\n")
-    print(f"  {'threshold':<11}{'bucket':<9}{'pages':>12}{'removed':>12}{'share':>9}")
+    pairs = np.load(f"{dedup}/pairs.npy")
+    console = Console()
+    counts = ", ".join(f"{int((pages['bucket'] == c).sum()):,} {b}" for c, b in enumerate(BUCKETS))
+    console.print(f"{len(pages):,} pages ({counts}), {len(pairs):,} pairs\n")
 
+    table = Table("threshold", *(f"{b} removed" for b in BUCKETS), "groups", "biggest",
+                  "mixed groups", "legal lost to general")
+    for col in table.columns:
+        col.justify, col.no_wrap = "right", True
     for t in sorted(args.thresholds):
         label, removed, kept = group(pages, pairs, t)
         rows = np.empty(len(removed), REMOVED)
         rows["id"], rows["kept_id"] = pages["id"][removed], pages["id"][kept]
-        save(f"{args.out}/removed_{t}.npy", rows)
-        report(t, pages, label, removed, kept)
+        save(f"{dedup}/removed_{t}.npy", rows)
+        table.add_row(*report_row(t, pages, label, removed, kept))
+    console.print(table)
 
 
 if __name__ == "__main__":

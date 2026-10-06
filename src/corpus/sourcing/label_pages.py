@@ -36,7 +36,8 @@ Outputs (--out):
                         bucket ("legal" | "general")
 
 Next:
-  python src/corpus/dedup/find_pairs.py --pages data/source/pages --labels data/source/labels --out data/dedup
+  python src/corpus/dedup/fingerprint.py --out data/source   (alongside), then
+  python src/corpus/dedup/score_pairs.py --out data/source
 """
 import argparse
 import glob
