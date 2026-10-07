@@ -9,6 +9,8 @@ Per page (minhash.py):
           identical text, identical number (for exact copies)
   bands   its 128 MinHash numbers squashed into 32 band values (for near
           copies)
+  words   its word count, split the same way MinHash splits it (for the
+          length bins in the entropy step)
 
 Workers:
 
@@ -31,8 +33,9 @@ Outputs (--out, source_pages.py's folder), one pair per pages/ file:
   fingerprints/<file>.bands.npy   the band values, 32 rows (one per band) x one
                                   column per page, so the pairs step can read a
                                   single band for every page
-  fingerprints/<file>.npz         id and text hash per page, in the same page
-                                  order; written last, so it marks the file done
+  fingerprints/<file>.npz         id, text hash and word count per page, in the
+                                  same page order; written last, so it marks
+                                  the file done
 
 Next:
   python src/corpus/dedup/score_pairs.py --out data/source
@@ -50,7 +53,7 @@ import numpy as np
 from rich.markup import escape
 from rich.progress import BarColumn, Progress, TaskProgressColumn, TextColumn, TimeRemainingColumn
 
-from minhash import NUM_BANDS, band_keys, shingle_hashes, signature, text_hash
+from minhash import NUM_BANDS, WORD, band_keys, shingle_hashes, signature, text_hash
 
 POLL    = 10                    # seconds between checks for new files
 REFRESH = 0.5                   # seconds between progress bar updates
@@ -77,17 +80,19 @@ def read_pages(path):
 # fingerprint one pages/ file and write its two outputs; returns (file, pages, seconds)
 def fingerprint_file(out, name):
     start = time.time()
-    ids, texts, bands = [], [], []
+    ids, texts, words, bands = [], [], [], []
     for r in read_pages(f"{out}/pages/{name}.jsonl.gz"):
         ids.append(r["id"])
         texts.append(text_hash(r["text"]))
+        words.append(len(WORD.findall(r["text"])))
         bands.append(band_keys(signature(shingle_hashes(r["text"]))))
     base = f"{out}/fingerprints/{name}"
     # temp name, then swap in, so a crash never leaves a half-written file; the
     # .npz goes last because it's what marks the file done
     np.save(base + ".tmp.npy", np.array(bands, np.uint64).reshape(-1, NUM_BANDS).T.copy())
     os.replace(base + ".tmp.npy", base + ".bands.npy")
-    np.savez(base + ".tmp.npz", id=np.array(ids, np.int64), text=np.array(texts, np.uint64))
+    np.savez(base + ".tmp.npz", id=np.array(ids, np.int64), text=np.array(texts, np.uint64),
+             words=np.array(words, np.uint32))
     os.replace(base + ".tmp.npz", base + ".npz")
     return name, len(ids), time.time() - start
 

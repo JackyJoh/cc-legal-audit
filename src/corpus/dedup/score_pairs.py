@@ -6,9 +6,10 @@ Removes nothing itself; remove_duplicates.py applies each threshold.
 
 Four steps:
 
-  1. load      every page's ID and text hash (fingerprints/) and bucket
-               (labels/); stops if a page has no label, or a file's two
-               fingerprint files disagree on its page count
+  1. load      every page's ID, text hash and word count (fingerprints/) and
+               bucket (labels/); stops if a page has no label, a file's two
+               fingerprint files disagree on its page count, or a file was
+               fingerprinted before word counts were added
   2. copies    pages with the same URL, or the same text hash: one is kept
                (first seen for the same URL; lowest survivor_rank for the same
                text), the rest are dropped and logged
@@ -39,7 +40,9 @@ Usage:
 Outputs (--out/dedup/):
   pairs.npy          every pair scoring >= 0.6: id_a, id_b, score
   pages.npy          every page left after exact copies: id, bucket
-                     (0 = general, 1 = legal)
+                     (0 = general, 1 = legal), file (its line in files.txt),
+                     words
+  files.txt          the pages/ file names, one per line, in file-number order
   exact_copies.npy   every dropped exact copy: id, kept_id, reason
                      (1 = same URL, 2 = same text)
   work/              each step's saved progress
@@ -70,7 +73,7 @@ MAX_GROUP = 20_000                  # ~200M pairs to check in one group
 BLOCK     = 1_000_000               # candidate pairs per scoring task
 
 PAIR = np.dtype([("id_a", "<i8"), ("id_b", "<i8"), ("score", "<f4")])
-PAGE = np.dtype([("id", "<i8"), ("bucket", "u1")])
+PAGE = np.dtype([("id", "<i8"), ("bucket", "u1"), ("file", "<u4"), ("words", "<u4")])
 COPY = np.dtype([("id", "<i8"), ("kept_id", "<i8"), ("reason", "u1")])
 
 console = Console()
@@ -117,17 +120,22 @@ def run_pool(desc, fn, items, workers, initializer=None, initargs=()):
     return results
 
 
-# step 1: every page's id, text hash and bucket, in fingerprint file order;
-# returns them plus each file's first row position in that order
+# step 1: every page's id, text hash, bucket, file number and word count, in
+# fingerprint file order; returns them plus each file's first row position
 def step1(out, names):
     parts = [np.load(f"{out}/fingerprints/{n}.npz") for n in names]
     for n, p in zip(names, parts):
+        if "words" not in p:
+            sys.exit(f"{n}: fingerprinted before word counts were added; "
+                     "delete fingerprints/ and rerun fingerprint.py")
         cols = np.load(f"{out}/fingerprints/{n}.bands.npy", mmap_mode="r").shape[1]
         if cols != len(p["id"]):
             sys.exit(f"{n}: {len(p['id'])} pages in its .npz but {cols} in its .bands.npy; "
                      "delete both and rerun fingerprint.py")
-    ids  = np.concatenate([p["id"] for p in parts])
-    text = np.concatenate([p["text"] for p in parts])
+    ids   = np.concatenate([p["id"] for p in parts])
+    text  = np.concatenate([p["text"] for p in parts])
+    words = np.concatenate([p["words"] for p in parts])
+    file  = np.repeat(np.arange(len(parts), dtype=np.uint32), [len(p["id"]) for p in parts])
     offsets = np.cumsum([0] + [len(p["id"]) for p in parts[:-1]])
 
     # buckets from labels/, looked up by id
@@ -144,11 +152,11 @@ def step1(out, names):
         sys.exit(f"{int((~labeled).sum()):,} of {len(ids):,} pages have no label; "
                  "finish label_pages.py first")
     console.print(f"  {len(ids):,} pages in {len(names):,} files, all labeled")
-    return ids, text, lab_buckets[k], offsets
+    return ids, text, lab_buckets[k], file, words, offsets
 
 
 # step 2: which pages survive exact copies; saves keep.npy, ids.npy and the outputs
-def step2(ids, text, bucket, work, dedup):
+def step2(ids, text, bucket, file, words, work, dedup):
     # same URL means same ID; the first one seen is kept
     keep = np.zeros(len(ids), bool)
     _, first = np.unique(ids, return_index=True)
@@ -169,6 +177,7 @@ def step2(ids, text, bucket, work, dedup):
     copies["reason"]  = np.r_[np.full(len(url_drop), SAME_URL), np.full(len(text_drop), SAME_TEXT)]
     pages = np.empty(int(keep.sum()), PAGE)
     pages["id"], pages["bucket"] = ids[keep], bucket[keep]
+    pages["file"], pages["words"] = file[keep], words[keep]
 
     save(f"{work}/ids.npy", ids)
     save(f"{work}/keep.npy", keep)
@@ -301,12 +310,14 @@ def main():
 
     console.print("[bold]1. load[/bold]")
     step = time.monotonic()
-    ids, text, bucket, offsets = step1(out, names)
+    ids, text, bucket, file, words, offsets = step1(out, names)
+    with open(f"{dedup}/files.txt", "w", encoding="utf-8") as f:
+        f.write("\n".join(names) + "\n")
     console.print(f"  took {took(step)}")
 
     console.print("[bold]2. exact copies[/bold]")
     step = time.monotonic()
-    step2(ids, text, bucket, work, dedup)
+    step2(ids, text, bucket, file, words, work, dedup)
     console.print(f"  took {took(step)}")
 
     console.print("[bold]3. bands[/bold]")
