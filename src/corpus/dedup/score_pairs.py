@@ -113,10 +113,9 @@ def progress():
 
 
 # run fn over each item's args in a pool, advancing one bar; returns results in item order
-def run_pool(desc, fn, items, workers, initializer=None, initargs=(), mp_context=None):
+def run_pool(desc, fn, items, workers, initializer=None, initargs=()):
     results = [None] * len(items)
-    with progress() as bars, ProcessPoolExecutor(workers, mp_context=mp_context,
-                                                 initializer=initializer, initargs=initargs) as ex:
+    with progress() as bars, ProcessPoolExecutor(workers, initializer=initializer, initargs=initargs) as ex:
         task = bars.add_task(desc, total=len(items), info="")
         jobs = {ex.submit(fn, *args): i for i, args in enumerate(items)}
         for job in as_completed(jobs):
