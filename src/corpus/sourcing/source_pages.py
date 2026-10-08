@@ -287,7 +287,7 @@ def main():
                 bars.console.print(escape(f"  [{finished}/{len(todo)}] {name}: {stats.get('kept', 0):,} kept of "
                                           f"{stats.get('responses', 0):,} pages in {stats['seconds']:.0f}s"))
             # one bar per file being read, showing how far through its download it is
-            now = dict(progress)
+            now = progress.copy()                # one call: dict(progress) can see a file that finishes mid-copy
             for name, (read, size, kept) in now.items():
                 if name not in rows:
                     # start time + file number (e.g. 193222-00141); the number alone repeats across segments
