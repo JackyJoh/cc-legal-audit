@@ -25,3 +25,4 @@ data/minhash_pilot/control_text.jsonl
 models/
 # test pipeline run
 data/sample_source/
+data/source_n10/

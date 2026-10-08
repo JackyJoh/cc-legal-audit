@@ -39,7 +39,7 @@ Runs in the laya environment, plus bertopic (and cuml for --gpu), not the
 project venv.
 
 Usage:
-  C:\\projects\\laya-env\\Scripts\\python.exe src/corpus/topics/fit_topics.py --out data/source --model qwen3 --bucket legal
+  C:\\projects\\laya-env\\Scripts\\python.exe src/corpus/topics/fit_topics.py --out data/source --bucket legal
 
 Reads (--out):
   dedup/pages.npy, dedup/files.txt   from score_pairs.py
@@ -58,7 +58,7 @@ Outputs (--out/topics/<model>/<bucket>/, or <bucket>_nocollapse/):
   info.json         fit size, min topic size, k, k/4, k/16, outlier share
 
 Next:
-  python src/corpus/topics/assign_topics.py --out data/source --model qwen3 --bucket legal
+  python src/corpus/topics/assign_topics.py --out data/source --bucket legal
 """
 import argparse
 import gzip
@@ -141,7 +141,7 @@ def group(vecs, topics, k):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.strip().split("\n\n")[0])
     ap.add_argument("--out", default="data/source", help="source_pages.py's --out folder")
-    ap.add_argument("--model", required=True, help="which embed.py vectors to use (qwen3, m2v, bge)")
+    ap.add_argument("--model", default="bge", help="which embed.py vectors to use")
     ap.add_argument("--bucket", required=True, choices=BUCKETS)
     ap.add_argument("--max-fit", type=int, default=MAX_FIT, help="most pages the fit uses")
     ap.add_argument("--no-collapse", action="store_true", help="keep pages removed at 0.6 in the sample (the check)")

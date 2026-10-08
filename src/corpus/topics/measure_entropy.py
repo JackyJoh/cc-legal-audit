@@ -35,7 +35,7 @@ needs both. With --no-collapse, legal is measured with the --no-collapse
 check fit. One process: everything is counting.
 
 Usage:
-  python src/corpus/topics/measure_entropy.py --out data/source --model qwen3 [--no-collapse]
+  python src/corpus/topics/measure_entropy.py --out data/source [--no-collapse]
 
 Reads (--out):
   dedup/pages.npy, dedup/files.txt          from score_pairs.py
@@ -253,7 +253,7 @@ def write_csv(path, header, rows):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.strip().split("\n\n")[0])
     ap.add_argument("--out", default="data/source", help="source_pages.py's --out folder")
-    ap.add_argument("--model", required=True, help="which embed.py vectors the fits used (qwen3, m2v, bge)")
+    ap.add_argument("--model", default="bge", help="which embed.py vectors the fits used")
     ap.add_argument("--thresholds", type=float, nargs="+", default=THRESHOLDS)
     ap.add_argument("--rounds", type=int, default=ROUNDS, help="bootstrap rounds")
     ap.add_argument("--random-draws", type=int, default=RANDOM_DRAWS, help="random removals averaged")

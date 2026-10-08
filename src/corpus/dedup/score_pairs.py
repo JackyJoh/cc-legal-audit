@@ -13,10 +13,14 @@ Four steps:
   2. copies    pages with the same URL, or the same text hash: one is kept
                (first seen for the same URL; lowest survivor_rank for the same
                text), the rest are dropped and logged
-  3. bands     for each band position, pages with the same band value become
-               candidate pairs; several bands run at once. Stops if one group
-               sharing a value is bigger than --max-group, since checking all
-               its pairs could take days
+  3. bands     for each band position, pages with the same band value form a
+               group, and each page in it is paired with the group's lowest
+               survivor_rank page (so a group of k pages gives k - 1 candidate
+               pairs, not every pair); several bands run at once. Limitation:
+               two pages that match each other but not that page are only
+               linked if another band pairs them. --all-pairs pairs every two
+               pages in a group instead (the old way, for measuring what this
+               misses), and stops if a group is bigger than --max-group
   4. scores    for every candidate pair, the exact Jaccard of the two pages'
                13-word phrases. Phrases aren't stored, so the text of pages in
                a candidate pair (and only those) is re-read from pages/ to
@@ -32,10 +36,10 @@ Workers:
            candidate pairs at a time
 
 Steps 3 and 4 save their work as they go, so a rerun picks up where the last
-one stopped; delete dedup/work/ if the input changes.
+one stopped; delete dedup/work/ if the input or --all-pairs changes.
 
 Usage:
-  python src/corpus/dedup/score_pairs.py --out data/source
+  python src/corpus/dedup/score_pairs.py --out data/source [--all-pairs]
 
 Outputs (--out/dedup/):
   pairs.npy          every pair scoring >= 0.6: id_a, id_b, score
@@ -69,7 +73,7 @@ from minhash import NUM_BANDS, exact_jaccard, shingle_hashes, survivor_rank
 MIN_SCORE = 0.6
 BUCKETS   = ("general", "legal")    # label bucket names -> codes 0, 1
 SAME_URL, SAME_TEXT = 1, 2          # exact_copies.npy reason codes
-MAX_GROUP = 20_000                  # ~200M pairs to check in one group
+MAX_GROUP = 20_000                  # --all-pairs: ~200M pairs to check in one group
 BLOCK     = 1_000_000               # candidate pairs per scoring task
 
 PAIR = np.dtype([("id_a", "<i8"), ("id_b", "<i8"), ("score", "<f4")])
@@ -194,28 +198,36 @@ def all_pairs(group):
     return np.stack([np.minimum(a, b), np.maximum(a, b)], axis=1)
 
 
-# step 3, one band position: every pair of kept pages sharing its value; returns
+# step 3, one band position: candidate pairs among kept pages sharing its value
+# (each page with its group's first page, or every pair with every_pair); returns
 # the band, its biggest group sizes, and whether the pairs were written
-def band_pairs(b, out, names, work, max_group):
+def band_pairs(b, out, names, work, max_group, every_pair):
     keep = np.load(f"{work}/keep.npy")
     ids  = np.load(f"{work}/ids.npy")[keep]
     vals = np.concatenate([np.load(f"{out}/fingerprints/{n}.bands.npy", mmap_mode="r")[b]
                            for n in names])[keep]
-    order = np.argsort(vals, kind="stable")       # equal values end up side by side
+    order = np.lexsort((survivor_rank(ids), vals))   # equal values side by side, lowest rank first
     vals, ids = vals[order], ids[order]
     starts = np.flatnonzero(np.r_[True, vals[1:] != vals[:-1]])
     sizes  = np.diff(np.r_[starts, len(vals)])
     top = np.sort(sizes)[::-1][:5].tolist()
-    if top and top[0] > max_group:
+    if every_pair and top and top[0] > max_group:
         return b, top, False
 
     path = f"{work}/bands/{b:02d}.npy"
     if not os.path.exists(path):
-        twos = starts[sizes == 2]                 # most groups are pairs: no loop needed
-        pairs = [np.stack([np.minimum(ids[twos], ids[twos + 1]),
-                           np.maximum(ids[twos], ids[twos + 1])], axis=1)]
-        pairs += [all_pairs(ids[s:s + k]) for s, k in zip(starts[sizes > 2], sizes[sizes > 2])]
-        save(path, np.concatenate(pairs))
+        if every_pair:
+            twos = starts[sizes == 2]             # most groups are pairs: no loop needed
+            pairs = [np.stack([np.minimum(ids[twos], ids[twos + 1]),
+                               np.maximum(ids[twos], ids[twos + 1])], axis=1)]
+            pairs += [all_pairs(ids[s:s + k]) for s, k in zip(starts[sizes > 2], sizes[sizes > 2])]
+            pairs = np.concatenate(pairs)
+        else:
+            head = np.repeat(starts, sizes)       # each position's group's first page
+            rest = np.flatnonzero(np.arange(len(ids)) != head)
+            a, c = ids[head[rest]], ids[rest]
+            pairs = np.stack([np.minimum(a, c), np.maximum(a, c)], axis=1)
+        save(path, pairs)
     return b, top, True
 
 
@@ -293,7 +305,8 @@ def main():
     ap.add_argument("--out", default="data/source", help="source_pages.py's --out folder")
     ap.add_argument("--workers", type=int, default=os.cpu_count(), help="processes for phrases and scores")
     ap.add_argument("--band-workers", type=int, default=8, help="band positions processed at once (~1 GB each per 60M pages)")
-    ap.add_argument("--max-group", type=int, default=MAX_GROUP, help="stop if pages sharing one band value exceed this")
+    ap.add_argument("--all-pairs", action="store_true", help="pair every two pages sharing a band value, not each with the group's first page")
+    ap.add_argument("--max-group", type=int, default=MAX_GROUP, help="--all-pairs only: stop if pages sharing one band value exceed this")
     args = ap.parse_args()
     start = time.monotonic()                     # wall clock for the run; each step is timed too
 
@@ -301,6 +314,17 @@ def main():
     work = f"{dedup}/work"
     for d in ("bands", "phrases", "scores"):
         os.makedirs(f"{work}/{d}", exist_ok=True)
+    # saved progress from the other pairing mode would mix the two; refuse to reuse it
+    mode, mode_file = ("all pairs" if args.all_pairs else "first page"), f"{work}/mode.txt"
+    if os.path.exists(mode_file):
+        with open(mode_file) as f:
+            saved = f.read()
+    else:
+        saved = "all pairs" if glob.glob(f"{work}/bands/*.npy") else mode   # runs before the flag existed
+    if saved != mode:
+        sys.exit(f"{work} holds progress from a '{saved}' run; delete it to switch to '{mode}'")
+    with open(mode_file, "w") as f:
+        f.write(mode)
     names = sorted(os.path.basename(p).removesuffix(".npz") for p in glob.glob(f"{out}/fingerprints/*.npz"))
     sourced = {os.path.basename(p).removesuffix(".json") for p in glob.glob(f"{out}/stats/*.json")}
     if not names:
@@ -322,8 +346,8 @@ def main():
 
     console.print("[bold]3. bands[/bold]")
     step = time.monotonic()
-    bands = run_pool("bands", band_pairs, [(b, out, names, work, args.max_group) for b in range(NUM_BANDS)],
-                     args.band_workers)
+    bands = run_pool("bands", band_pairs, [(b, out, names, work, args.max_group, args.all_pairs)
+                                           for b in range(NUM_BANDS)], args.band_workers)
     biggest = sorted(((k, b) for b, top, _ in bands for k in top), reverse=True)[:5]
     console.print("  biggest groups sharing a band value: "
                   + ", ".join(f"{k:,} (band {b})" for k, b in biggest))

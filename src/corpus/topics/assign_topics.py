@@ -28,7 +28,7 @@ mid-way is labeled again from the start.
 Runs in the laya environment, plus bertopic, not the project venv.
 
 Usage:
-  C:\\projects\\laya-env\\Scripts\\python.exe src/corpus/topics/assign_topics.py --out data/source --model qwen3 --bucket legal
+  C:\\projects\\laya-env\\Scripts\\python.exe src/corpus/topics/assign_topics.py --out data/source --bucket legal
 
 Reads (--out):
   dedup/pages.npy, dedup/files.txt   from score_pairs.py
@@ -41,7 +41,7 @@ Outputs (--out/topics/<model>/<bucket>/, or <bucket>_nocollapse/):
                         outlier
 
 Next:
-  python src/corpus/topics/measure_entropy.py --out data/source --model qwen3
+  python src/corpus/topics/measure_entropy.py --out data/source
 """
 import argparse
 import os
@@ -91,7 +91,7 @@ def assign_file(out, model_name, name, wanted, dest):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.strip().split("\n\n")[0])
     ap.add_argument("--out", default="data/source", help="source_pages.py's --out folder")
-    ap.add_argument("--model", required=True, help="which embed.py vectors the fit used (qwen3, m2v, bge)")
+    ap.add_argument("--model", default="bge", help="which embed.py vectors the fit used")
     ap.add_argument("--bucket", required=True, choices=BUCKETS)
     ap.add_argument("--no-collapse", action="store_true", help="label with the --no-collapse check fit")
     ap.add_argument("--workers", type=int, default=2, help="processes, each holding the model (set by RAM)")

@@ -2,14 +2,9 @@
 Turns every page source_pages.py kept into a vector (an embedding), one
 finished pages/ file at a time, for the topic step to cluster and label.
 
-Models (--model):
-
-  qwen3   Qwen/Qwen3-Embedding-0.6B: whole page, up to --max-tokens; 1024 numbers
-  m2v     minishlab/potion-base-8M (Model2Vec): whole page, CPU; 256 numbers
-  bge     BAAI/bge-small-en-v1.5: first 512 tokens; 384 numbers
-
-The scout run picks one; each model writes its own folder, so switching models
-never overwrites another's vectors.
+Model (--model): bge = BAAI/bge-small-en-v1.5, first 512 tokens of each page;
+384 numbers per page. Each model writes its own folder, so a different model
+never overwrites bge's vectors.
 
 Workers:
 
@@ -26,11 +21,11 @@ mid-way is embedded again from the start. With --watch, the script keeps
 checking for new files while source_pages.py runs, and stops once
 source_pages.py has finished and every file is embedded.
 
-Runs in the laya environment (torch + GPU), plus sentence-transformers and
-model2vec, not the project venv.
+Runs in the laya environment (torch + GPU), plus sentence-transformers, not
+the project venv.
 
 Usage:
-  C:\\projects\\laya-env\\Scripts\\python.exe src/corpus/topics/embed.py --out data/source --model qwen3 [--watch]
+  C:\\projects\\laya-env\\Scripts\\python.exe src/corpus/topics/embed.py --out data/source [--watch]
 
 Outputs (--out, source_pages.py's folder), one per pages/ file:
   embeddings/<model>/<file>.npy   one row per page, in pages/ order (the same
@@ -52,11 +47,7 @@ import numpy as np
 from rich.markup import escape
 from rich.progress import BarColumn, Progress, TaskProgressColumn, TextColumn, TimeRemainingColumn
 
-MODELS = {
-    "qwen3": "Qwen/Qwen3-Embedding-0.6B",
-    "m2v":   "minishlab/potion-base-8M",
-    "bge":   "BAAI/bge-small-en-v1.5",
-}
+MODELS = {"bge": "BAAI/bge-small-en-v1.5"}
 BGE_TOKENS = 512                # bge's own limit
 CHUNK   = 256                   # pages per progress update
 POLL    = 10                    # seconds between checks for new files
@@ -80,21 +71,12 @@ def read_texts(path):
 
 
 # the model, plus a function from a list of texts to unit-length float32 vectors
-def load_model(name, device, max_tokens, batch_size):
-    if name == "m2v":
-        from model2vec import StaticModel
-        model = StaticModel.from_pretrained(MODELS[name])
-
-        def encode(texts):
-            v = model.encode(texts, max_length=None, batch_size=batch_size)   # None: whole page
-            return v / np.maximum(np.linalg.norm(v, axis=1, keepdims=True), 1e-12)
-        return encode
-
+def load_model(name, device, batch_size):
     import torch
     from sentence_transformers import SentenceTransformer
     dtype = torch.float16 if device.startswith("cuda") else torch.float32
     model = SentenceTransformer(MODELS[name], device=device, model_kwargs={"torch_dtype": dtype})
-    model.max_seq_length = BGE_TOKENS if name == "bge" else max_tokens
+    model.max_seq_length = BGE_TOKENS
 
     # sentence-transformers sorts each call's texts by length, so batches pad little
     def encode(texts):
@@ -123,16 +105,15 @@ def embed_file(out, model, name, encode, tick):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.strip().split("\n\n")[0])
     ap.add_argument("--out", default="data/source", help="source_pages.py's --out folder")
-    ap.add_argument("--model", required=True, choices=MODELS, help="which embedding model")
-    ap.add_argument("--batch-size", type=int, default=16, help="pages per model call (lower it if the GPU runs out of memory)")
-    ap.add_argument("--max-tokens", type=int, default=8192, help="qwen3 only: tokens read per page")
-    ap.add_argument("--device", default="cuda", help="cuda or cpu (m2v always runs on CPU)")
+    ap.add_argument("--model", default="bge", choices=MODELS, help="which embedding model")
+    ap.add_argument("--batch-size", type=int, default=256, help="pages per model call (lower it if the GPU runs out of memory)")
+    ap.add_argument("--device", default="cuda", help="cuda or cpu")
     ap.add_argument("--watch", action="store_true", help="keep embedding new files until source_pages.py is done")
     args = ap.parse_args()
     start = time.monotonic()                     # wall clock for the run, printed at the end
     folder = f"{args.out}/embeddings/{args.model}"
     os.makedirs(folder, exist_ok=True)
-    encode = load_model(args.model, args.device, args.max_tokens, args.batch_size)
+    encode = load_model(args.model, args.device, args.batch_size)
 
     files, sent, todo = {}, set(), []
     n_files, n_done, skipped, pages, busy, queued = 0, 0, 0, 0, 0.0, 0
