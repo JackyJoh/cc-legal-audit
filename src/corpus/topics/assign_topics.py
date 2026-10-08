@@ -17,10 +17,11 @@ topic is stored; the k/4 and k/16 topics are a lookup in the fit's levels.npy.
 
 Workers:
 
-  assign   a pool of processes (--workers), each loading the fitted model once
-           and taking one pages/ file at a time. The model carries the fit
-           sample (a few GB at 1M pages) in every process, so set --workers by
-           RAM, not cores
+  assign   a pool of processes (--workers), each taking one pages/ file at a
+           time. The model carries the fit sample (~6.6 GB at 1M pages). On
+           Linux it is loaded once and the workers share that copy, so set
+           --workers by cores (with NUMBA_NUM_THREADS=1 OMP_NUM_THREADS=1); on
+           Windows each worker loads its own copy, so set --workers by RAM
 
 A file is skipped once its labels exist, so a rerun resumes; a file cut off
 mid-way is labeled again from the start.
@@ -44,6 +45,7 @@ Next:
   python src/corpus/topics/measure_entropy.py --out data/source
 """
 import argparse
+import multiprocessing
 import os
 import sys
 import time
@@ -56,7 +58,8 @@ from score_pairs import BUCKETS, console, run_pool, save_npz, took  # noqa: E402
 _model = {}                     # each worker's fitted model and topic centers
 
 
-# worker start: load the fitted model once, plus each topic's average vector (unit length)
+# load the fitted model once, plus each topic's average vector (unit length): in
+# the main process before forking (Linux), or at each worker's start (Windows)
 def init(fit_dir):
     from bertopic import BERTopic
     model = BERTopic.load(f"{fit_dir}/model")
@@ -122,11 +125,16 @@ def main():
     console.print(f"{len(pages):,} {args.bucket} pages in {len(files):,} files; "
                   f"{len(names) - len(todo):,} files already labeled")
 
-    # every file gets an output, even one with no bucket pages, so it counts as done
-    empty = np.empty(0, np.int64)
-    results = run_pool("files", assign_file,
-                       [(out, args.model, names[i], groups.get(i, empty), dest) for i in todo],
-                       args.workers, initializer=init, initargs=(fit_dir,))
+    # Linux: load the model here and fork, so workers share this one copy instead
+    # of each loading their own; Windows can't fork, so each worker loads it.
+    # Every file gets an output, even one with no bucket pages, so it counts as done
+    jobs =[(out, args.model, names[i], groups.get(i, np.empty(0, np.int64)), dest) for i in todo]
+    if "fork" in multiprocessing.get_all_start_methods():
+        init(fit_dir)
+        results = run_pool("files", assign_file, jobs, args.workers,
+                           mp_context=multiprocessing.get_context("fork"))
+    else:
+        results = run_pool("files", assign_file, jobs, args.workers, initializer=init, initargs=(fit_dir,))
     n = sum(r[0] for r in results)
     moved = sum(r[1] for r in results)
     console.print(f"\nthis run: {n:,} pages labeled; {moved:,} ({moved / n if n else 0:.1%}) "
