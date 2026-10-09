@@ -21,7 +21,9 @@ page:
   2. url       the URL filter (filters/url.py), before extraction, so a dropped
                page is never extracted
   3. extract   trafilatura, with fetch_warc_text.py's pinned settings, so text
-               matches what the classifier was trained on
+               matches what the classifier was trained on. A page that takes
+               over EXTRACT_SECONDS is dropped, since a rare page makes it run
+               forever (Linux only: Windows has no alarm signal)
   4. filters   Gopher, then C4 (filters/pipeline.py)
 
 Needs AWS credentials in .env (the bucket rejects unsigned requests; nothing is
@@ -36,8 +38,9 @@ Outputs (--out), one of each per WARC file:
                             warc_record_length
   dropped/<file>.jsonl.gz   dropped pages: the same, without text, plus reason
                             (e.g. "url: blocked domain", "gopher: word count",
-                            "extract: empty", or "error: <type>" for a page
-                            that raised an unexpected error)
+                            "extract: empty", "extract: timeout", or
+                            "error: <type>" for a page that raised an
+                            unexpected error)
   stats/<file>.json         counts per stage and seconds taken; written last,
                             so it marks the file done
   warc.paths.gz             the snapshot's list of WARC files
@@ -52,6 +55,7 @@ import gzip
 import json
 import os
 import random
+import signal
 import sys
 import time
 from collections import Counter, defaultdict
@@ -78,6 +82,7 @@ RETRIES   = 3                                         # whole-file attempts befo
 PATHS_KEY = f"crawl-data/{SNAPSHOT}/warc.paths.gz"
 REPORT    = 0.5                                       # seconds between a worker's progress updates
 RESUMES   = 5                                         # reconnects per read before the file is retried whole
+EXTRACT_SECONDS = 30                                  # per-page limit on trafilatura; normal pages take milliseconds
 
 
 # one WARC file's download, counting bytes read; if the connection drops, it
@@ -140,12 +145,37 @@ def english_only(metadata):
     return False
 
 
+# raised when a page's extraction runs out of time; a BaseException, so
+# trafilatura's own `except Exception` blocks can't swallow it
+class ExtractTimeout(BaseException):
+    pass
+
+
+def _timeout(signum, frame):
+    raise ExtractTimeout
+
+
+# trafilatura, stopped after EXTRACT_SECONDS by an alarm signal (Linux only)
+def extract(html):
+    if not hasattr(signal, "SIGALRM"):
+        return trafilatura.extract(html, **EXTRACT_OPTS)
+    old = signal.signal(signal.SIGALRM, _timeout)
+    signal.alarm(EXTRACT_SECONDS)
+    try:
+        return trafilatura.extract(html, **EXTRACT_OPTS)
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, old)
+
+
 # extract and filter one in-scope page: (row to keep, None) or (None, reason)
 def judge(url, html):
     if reason := url_reject(url):
         return None, f"url: {reason}"
     try:
-        text = trafilatura.extract(html, **EXTRACT_OPTS)
+        text = extract(html)
+    except ExtractTimeout:
+        return None, "extract: timeout"
     except Exception as exc:
         return None, f"extract: {type(exc).__name__}"
     if not text or not text.strip():
