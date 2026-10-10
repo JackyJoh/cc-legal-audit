@@ -66,10 +66,13 @@ The real run for the paper, built up in batches into `data/source` on HPG with `
 | `--per-segment 10` | 2026-10-07 | 363 | 363 | the timing run above | | |
 | `--per-segment 20` | 2026-10-08 | 1,637 | 2,000 | 2:05:29 (job start 00:59:04 → last stats file 03:04:33) | 0.217 files/s | last file vs. sourcing's (03:04:33): label 03:04:45 (+12 s), embed 03:04:59 (+26 s), fingerprint 03:32:26 (**+27:53**, fell behind at `--workers 1`) |
 | `--per-segment 60` (fingerprint `--workers 3`) | 2026-10-08 | 3,999 of 4,000 | 5,999 | 5:03:24 (job start 16:50:47 → last stats file 21:54:11) | 0.220 files/s | last file vs. sourcing's: label +8 s, fingerprint +4 s, embed +37 s |
+| `--per-segment 120` | 2026-10-09 | 6,000 of 6,001 | 11,999 | 7:57:50 (job start 15:27:12 → last stats file 23:25:02) | 0.209 files/s | last file vs. sourcing's: label +8 s, fingerprint +12 s, embed +18 s |
 
 `--per-segment 20` notes: sourcing's main loop crashed mid-run on a progress-bar race (`KeyError`, fixed); its workers still finished every file before the script exited, but it never wrote `source.done`; the `--watch` steps waited for it with the GPU idle, and HPG cancelled the job after an hour (idle GPU policy). All 2,000 files were sourced, labeled, fingerprinted and embedded. Sourcing ran ~1.9× faster than the timing run with fewer workers, so its speed isn't set by CPUs alone.
 
 `--per-segment 60` notes: one file never finished (still running 71 min after the others, vs. ~5 min normally), so again no `source.done`, and HPG cancelled the job at 23:05:49 for the idle GPU.
+
+`--per-segment 120` notes: the same file (`…20260309050039-00261`) hung again, despite the 30 s per-page extraction limit. The first hang was in trafilatura's `prune_html` (seen with py-spy), whose stuck line is one lxml call; the alarm signal can't interrupt C code, which would explain it (not checked on this run). Cancelled for the idle GPU at 00:40:04.
 
 ### Why score pairs uses first-page pairing
 

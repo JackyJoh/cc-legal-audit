@@ -21,9 +21,10 @@ page:
   2. url       the URL filter (filters/url.py), before extraction, so a dropped
                page is never extracted
   3. extract   trafilatura, with fetch_warc_text.py's pinned settings, so text
-               matches what the classifier was trained on. A page that takes
-               over EXTRACT_SECONDS is dropped, since a rare page makes it run
-               forever (Linux only: Windows has no alarm signal)
+               matches what the classifier was trained on. A page with over
+               MAX_TAGS tags is dropped first (one with 471k elements hung it
+               for hours), and one that takes over EXTRACT_SECONDS is dropped
+               too (Linux only: Windows has no alarm signal)
   4. filters   Gopher, then C4 (filters/pipeline.py)
 
 Needs AWS credentials in .env (the bucket rejects unsigned requests; nothing is
@@ -38,9 +39,9 @@ Outputs (--out), one of each per WARC file:
                             warc_record_length
   dropped/<file>.jsonl.gz   dropped pages: the same, without text, plus reason
                             (e.g. "url: blocked domain", "gopher: word count",
-                            "extract: empty", "extract: timeout", or
-                            "error: <type>" for a page that raised an
-                            unexpected error)
+                            "extract: empty", "extract: too many tags",
+                            "extract: timeout", or "error: <type>" for a page
+                            that raised an unexpected error)
   stats/<file>.json         counts per stage and seconds taken; written last,
                             so it marks the file done
   warc.paths.gz             the snapshot's list of WARC files
@@ -83,6 +84,7 @@ PATHS_KEY = f"crawl-data/{SNAPSHOT}/warc.paths.gz"
 REPORT    = 0.5                                       # seconds between a worker's progress updates
 RESUMES   = 5                                         # reconnects per read before the file is retried whole
 EXTRACT_SECONDS = 30                                  # per-page limit on trafilatura; normal pages take milliseconds
+MAX_TAGS  = 400_000      # "<" count above which a page isn't extracted; a 471k-element page hung trafilatura for hours (normal pages: under 100k elements)
 
 
 # one WARC file's download, counting bytes read; if the connection drops, it
@@ -172,6 +174,8 @@ def extract(html):
 def judge(url, html):
     if reason := url_reject(url):
         return None, f"url: {reason}"
+    if html.count(b"<") > MAX_TAGS:
+        return None, "extract: too many tags"
     try:
         text = extract(html)
     except ExtractTimeout:
