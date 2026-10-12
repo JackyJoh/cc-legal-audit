@@ -12,8 +12,9 @@ Four steps:
               text only names the topics by their common words)
   3. fit      BERTopic on the saved vectors: squash them (UMAP), find clumps
               (HDBSCAN), name each clump. A clump needs at least 0.05% of the
-              sample (and at least 10 pages) to count as a topic; pages in no
-              clump are outliers, handled by assign_topics.py
+              sample (and at least 10 pages) to count as a topic, and a page
+              needs MIN_SAMPLES close neighbors to count as inside one;
+              pages in no clump are outliers, handled by assign_topics.py
   4. group    each topic's average vector, then merge two topics again and
               again until one is left, each time the pair that keeps groups
               tightest (Ward), so groups grow evenly. Cutting that order at k/4 and
@@ -78,6 +79,7 @@ COLLAPSE    = 0.6               # threshold whose removed pages leave the fit sa
 MAX_FIT     = 1_000_000
 MIN_SHARE   = 0.0005            # min topic size, as a share of the fit size
 MIN_TOPIC   = 10                # ...and never below this many pages
+MIN_SAMPLES = 10                # HDBSCAN density: neighbors a page needs to count as inside a topic (BERTopic's default)
 MIN_LEVEL   = 10                # the k/16 level never has fewer topics than this
 SEED        = 42
 MAX_WORDS   = 50_000            # vocabulary kept for naming topics
@@ -116,7 +118,7 @@ def fit(texts, vecs, min_topic, seed, gpu):
         from umap import UMAP
     # a fixed random_state makes UMAP repeatable, at the cost of running it on one core
     umap = UMAP(n_neighbors=15, n_components=5, min_dist=0.0, metric="cosine", random_state=seed)
-    clumps = HDBSCAN(min_cluster_size=min_topic, metric="euclidean", prediction_data=True)
+    clumps = HDBSCAN(min_cluster_size=min_topic, min_samples=MIN_SAMPLES, metric="euclidean", prediction_data=True)
     words = CountVectorizer(stop_words="english", max_features=MAX_WORDS)
     model = BERTopic(umap_model=umap, hdbscan_model=clumps, vectorizer_model=words, verbose=True)
     topics, _ = model.fit_transform(texts, embeddings=vecs)

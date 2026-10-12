@@ -26,3 +26,6 @@ models/
 # test pipeline run
 data/sample_source/
 data/source_n10/
+# the full run (on HPG) and its job logs
+data/source/
+log/
