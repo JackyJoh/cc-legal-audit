@@ -32,10 +32,11 @@ topics, for the figure.
 
 Measures whichever buckets have labels, so it runs on general alone; the gap
 needs both. With --no-collapse, legal is measured with the --no-collapse
-check fit. One process: everything is counting.
+check fit. One process: everything is counting, except the assigned/ files,
+read by --threads threads at once (each read mostly waits on disk).
 
 Usage:
-  python src/corpus/topics/measure_entropy.py --out data/source [--no-collapse]
+  python src/corpus/topics/measure_entropy.py --out data/source [--no-collapse] [--threads 32]
 
 Reads (--out):
   dedup/pages.npy, dedup/files.txt          from score_pairs.py
@@ -63,6 +64,7 @@ import json
 import os
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 from rich.table import Table
@@ -80,6 +82,7 @@ RANDOM_DRAWS = 100              # random removals averaged for the main numbers
 CURVE_FLOOR  = 10
 CURVE_DRAWS  = 20
 CHUNK        = 100              # bootstrap rounds counted at once
+READ_THREADS = 32               # threads reading the assigned/ files (waiting on disk, not CPU)
 SEED         = 42
 
 
@@ -102,20 +105,27 @@ def lost(before, after):
     return ((left <= 0.5) & present).sum(-1) / n, ((left <= 0.1) & present).sum(-1) / n
 
 
+# one assigned/<file>.npz's (id, topic, outlier), file closed after
+def read_assigned(path):
+    with np.load(path) as f:
+        return f["id"], f["topic"], f["outlier"]
+
+
 # one bucket's labels, lengths, files and removals, lined up with its pages; (data, None) or (None, why)
-def load_bucket(out, model, bucket, pages, removed, n_files, check):
+def load_bucket(out, model, bucket, pages, removed, n_files, check, threads):
     fit = f"{out}/topics/{model}/{bucket}" + ("_nocollapse" if check else "")
     if not os.path.exists(f"{fit}/info.json"):
         return None, f"no fit in {fit}"
     paths = [p for p in glob.glob(f"{fit}/assigned/*.npz") if not p.endswith(".tmp.npz")]
     if len(paths) < n_files:
         return None, f"{n_files - len(paths):,} of {n_files:,} files not labeled yet in {fit}/assigned"
-    parts = [np.load(p) for p in paths]
-    ids = np.concatenate([p["id"] for p in parts])
+    with ThreadPoolExecutor(threads) as pool:    # many small reads, each mostly waiting on disk
+        parts = list(pool.map(read_assigned, paths))
+    ids = np.concatenate([p[0] for p in parts])
     order = np.argsort(ids)
     ids = ids[order]
-    topic = np.concatenate([p["topic"] for p in parts])[order]
-    outlier = np.concatenate([p["outlier"] for p in parts])[order]
+    topic = np.concatenate([p[1] for p in parts])[order]
+    outlier = np.concatenate([p[2] for p in parts])[order]
 
     mine = pages[pages["bucket"] == BUCKETS.index(bucket)]
     if not len(mine) or not len(ids):
@@ -260,6 +270,7 @@ def main():
     ap.add_argument("--min-bin", type=int, default=MIN_BIN, help="fewest pages of the smaller bucket per length bin")
     ap.add_argument("--no-collapse", action="store_true", help="measure legal with the --no-collapse check fit")
     ap.add_argument("--seed", type=int, default=SEED)
+    ap.add_argument("--threads", type=int, default=READ_THREADS, help="threads reading the assigned/ files")
     args = ap.parse_args()
     start = time.monotonic()                     # wall clock for the run, printed at the end
     rng = np.random.default_rng(args.seed)
@@ -279,7 +290,8 @@ def main():
     step = time.monotonic()
     data = {}
     for b in BUCKETS:
-        d, why = load_bucket(out, args.model, b, pages, removed, n_files, args.no_collapse and b == "legal")
+        d, why = load_bucket(out, args.model, b, pages, removed, n_files, args.no_collapse and b == "legal",
+                             args.threads)
         if d is None:
             console.print(f"  {b}: skipped ({why})")
             continue
