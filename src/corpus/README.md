@@ -4,7 +4,7 @@ Code overview: to do.
 
 ## Timing
 
-Measured on HiPerGator on one job of 32 CPUs + 1 RTX 6000. The run: **26,776 files** (24 failed on S3 throttling, not retried), **~99.4M kept pages** and **~53.5k legal pages** (61% counted from label logs, the rest at the measured 3,713 pages per file and 0.054% legal).
+Measured on HiPerGator on one job of 32 CPUs + 1 RTX 6000. The run: **26,776 files** (24 failed on S3 throttling, not retried), **99,415,529 kept pages** (86,301,929 after exact copies: 86,251,825 general, 50,104 legal).
 
 ### Each step
 
@@ -12,33 +12,33 @@ Measured on HiPerGator on one job of 32 CPUs + 1 RTX 6000. The run: **26,776 fil
 |---|---|---|
 | Sourcing | ~21 min (0.216 files/s) | live batches 20–268: 26,413 files in 33:58:16 |
 | Label / fingerprint / embed | keep up with sourcing | same batches: each finished within ~1 min of sourcing |
-| Score pairs | ~1.2 min | `-N 10`: 1,357,321 pages in 1:36, `--workers 30` |
-| Remove duplicates | ~1.5 s | `-N 10`: 0:02 |
-| Fit topics | 48 min, fixed (general fit capped at 1M pages) | `-N 10`: 0:48:00, `--workers 28` |
-| Assign topics | ~4.3 min | `-N 10`: 5:53, `--workers 16` (6.6 GB each, 128 GB) |
-| Measure entropy | ~13 s | `-N 10`: 0:17 |
+| Score pairs | ~7.3 min (not linear: 1.2 min at 1.36M pages) | full run: 12:08:18, `--workers 30` |
+| Remove duplicates | ~2.5 s | full run: 0:04:07 |
+| Fit topics | 59:29, fixed (general fit capped at 1M pages) | full run, `--workers 28` |
+| Assign topics | ~4.7 min | full run: 7:43:46, `--workers 16` (9.2 GB each, 128 GB) |
+| Measure entropy | not measured yet | |
 
 ### Blocks
 
 Each block needs the previous one finished; steps inside a block run at the same time.
 
-| Block | Steps | Time, ~99.4M pages |
+| Block | Steps | Time, 99.4M pages |
 |---|---|---|
-| 1 | sourcing + label + fingerprint + embed (live, `--watch`) | **~34 h** (measured) |
-| 2 | score pairs | **~2.0 h** |
-| 3 | remove duplicates | **~2.5 min** |
-| 4 | fit topics (general + legal) | **~48 min** |
-| 5 | assign topics (general + legal) | **~7.2 h** |
-| 6 | measure entropy | **~21 min** |
-| | **total** | **~44 h** |
+| 1 | sourcing + label + fingerprint + embed (live, `--watch`) | **33:58:16** |
+| 2 | score pairs | **12:08:18** |
+| 3 | remove duplicates | **0:04:07** |
+| 4 | fit topics (general + legal) | **1:02:39** |
+| 5 | assign topics (general + legal) | **7:43:46** |
+| 6 | measure entropy | not run yet |
+| | **total so far** | **~55 h** |
 
-**Formula:** **hours ≈ 0.44 × M + 0.8** (M = millions of kept pages), or **hours ≈ 0.82 × L + 0.8** (L = thousands of legal pages).
+Block 2 ran 6× its linear estimate: candidate pairs grew faster than pages (297,829 at 1.36M pages → 57,504,285 at 99.4M).
 
-**Time so far:** block 1 took 33:58:16 over six batches (2026-10-08 → 10-12), plus the `-N 10` timing run; blocks 2–6 not run yet.
+**Formula** (fits this run's size; underestimates above ~100M because of block 2): **hours ≈ 0.54 × M + 1.0** (M = millions of kept pages), or **hours ≈ 1.07 × L + 1.0** (L = thousands of legal pages after exact copies).
 
 ### Live run times
 
-The real run for the paper, built up in batches into `data/source` with `sbatch block1.sh <per-segment>` (sourcing `--workers 56`, TF-IDF 1, fingerprint 3 (1 in batch 20), embed bge, all live). Each batch only does the files the last one didn't.
+The real run for the paper, built up in batches into `data/source` with `sbatch jobs/block1.sh <per-segment>` (sourcing `--workers 56`, TF-IDF 1, fingerprint 3 (1 in batch 20), embed bge, all live). Each batch only does the files the last one didn't.
 
 | Batch | Date | New files | Total files | Sourcing | Rate |
 |---|---|---|---|---|---|
