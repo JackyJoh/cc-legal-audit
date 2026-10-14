@@ -13,8 +13,8 @@ Standard LLM pre-training pipelines apply a uniform Jaccard similarity threshold
 3. Split pages into a legal bucket (see [Legal detection](#legal-detection)) and a general-web bucket
 4. Fit topics once per bucket (bge-small-en-v1.5 embeddings of the first 512 tokens, BERTopic) and freeze every page's topic label
 5. Run MinHash fuzzy dedup at Jaccard thresholds 0.6, 0.7, 0.8, 0.9: 128 hashes on word 13-grams, LSH with 32 bands of 4, every candidate pair checked by exact Jaccard, near-duplicate groups by connected components
-6. After each threshold, recount topics with the same frozen labels (no refit, which could hide lost topics), and compare against removing the same number of pages at random
-7. The headline is the gap: legal's loss beyond random minus general's loss beyond random, in effective topics (2^entropy), at three topic granularities, with 95% bootstrap intervals over WARC files
+6. After each threshold, count topics again using the same labels. Topics are never refit, so a topic that loses its pages shows up as lost. Compare with removing the same number of pages at random
+7. Main result: does dedup cost legal more topic diversity than general web text, beyond what random removal would? Measured in effective topics, at three topic sizes, with 95% error bars
 
 ## Legal detection
 
