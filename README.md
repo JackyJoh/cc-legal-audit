@@ -50,6 +50,15 @@ Topics: 218 general and 283 legal at the finest level.
 
 Built in ~55 h on one HiPerGator job of 32 CPUs + 1 RTX 6000. Per-step timings and how they were measured: [`src/corpus/README.md`](src/corpus/README.md).
 
+## Results
+
+**Hypothesis:** legal pages share wording and templates, so dedup would remove distinct legal pages and cost legal more topic variety than general web pages. **The full run does not support it.**
+
+- Dedup removes fewer legal pages than general ones at every threshold (6.5% vs 11.4% at 0.6, table above).
+- Topic variety is measured as "effective topics": roughly, how many topics the pages are spread across, weighted by size. Before dedup, at the finest of the three topic levels (218 general topics, 283 legal), it is 166.8 for general pages and 194.3 for legal.
+- After dedup, topic variety moves (up or down) by less than 1.5% for both, at every threshold. No topic disappears.
+- Each change is compared with removing the same number of pages at random. Measured that way, legal loses up to 0.8 percentage points less variety than general at the finest level, and up to 0.5 points more at the broadest (14 general, 18 legal topics); the middle level falls in between. Neither consistently loses more.
+
 ## Code
 
 ```
