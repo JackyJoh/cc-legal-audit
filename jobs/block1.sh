@@ -10,7 +10,7 @@
 #SBATCH --output=log/block1_%j.log
 
 PER=${1:?give files per segment, e.g. sbatch jobs/block1.sh 20}
-cd /orange/ufdatastudios/jjohannessen/cc-legal-audit
+cd /orange/ufdatastudios/$USER/cc-legal-audit
 module load python/3.12
 rm -f data/source/source.done
 

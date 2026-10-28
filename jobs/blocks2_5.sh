@@ -10,7 +10,7 @@
 # blocks 2-5 on everything block 1 made, one after another, CPU only:
 # score pairs -> remove duplicates -> fit topics -> assign topics.
 # Measure entropy (block 6) is left to run by hand. Stops at the first step that fails.
-cd /orange/ufdatastudios/jjohannessen/cc-legal-audit
+cd /orange/ufdatastudios/$USER/cc-legal-audit
 module load python/3.12
 set -euo pipefail               # after module load, whose own scripts can trip -u
 
