@@ -1,5 +1,5 @@
 """
-Measures how fast one GPU trains the study's model (about 1.17B parameters),
+Measures how fast one GPU trains the study's model (about 400M parameters),
 to set the model size and token count from a real number. Trains on random
 token IDs, since speed doesn't depend on the data; the loss stays near 10.8
 (random guessing).
@@ -22,21 +22,22 @@ import torch
 from torch.utils.data import Dataset
 
 VOCAB_SIZE = 49152
-BATCH_SIZE = 16
+BATCH_SIZE = 32
 MAX_STEPS = 100
 SEQ_LEN = 2048
 
-# TinyLlama-1.1B's shape with SmolLM2's vocab; everything else is the default
+# SmolLM2-360M's shape (same tokenizer) with 36 layers instead of 32, for
+# ~400M parameters; everything else is the default
 config = LlamaConfig(
     vocab_size=VOCAB_SIZE,
-    hidden_size=2048,
-    intermediate_size=5632,
-    num_hidden_layers=22,
-    num_attention_heads=32,
-    num_key_value_heads=4,
+    hidden_size=960,
+    intermediate_size=2560,
+    num_hidden_layers=36,
+    num_attention_heads=15,
+    num_key_value_heads=5,
     max_position_embeddings=SEQ_LEN,
     rms_norm_eps=1e-5,
-    tie_word_embeddings=False,
+    tie_word_embeddings=True,
 )
 
 args = TrainingArguments(
