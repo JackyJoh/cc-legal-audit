@@ -25,7 +25,7 @@ import torch
 from torch.utils.data import Dataset
 
 VOCAB_SIZE = 49152
-BATCH_SIZE = 48
+BATCH_SIZE = 32
 MAX_STEPS = 300
 WARMUP_STEPS = 50    # not timed: compiling and the slow first steps happen here
 SEQ_LEN = 2048
