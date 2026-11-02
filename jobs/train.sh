@@ -1,6 +1,6 @@
 #!/bin/bash
 # one training run: sbatch jobs/train.sh <threshold> <seed>, e.g. sbatch jobs/train.sh 0.6 1
-# quick check first: sbatch --time=0:30:00 jobs/train.sh 0.6 1 --test
+# quick check first: sbatch --time=1:00:00 jobs/train.sh 0.6 1 --test
 #SBATCH --job-name=train
 #SBATCH --account=ufdatastudios
 #SBATCH --qos=ufdatastudios
@@ -15,4 +15,14 @@ cd /orange/ufdatastudios/$USER/cc-legal-audit
 module load python/3.12
 export WANDB_PROJECT=ccaudit-dedup
 
-~/venvs/train/bin/python -u src/training/train/train.py --threshold $1 --seed $2 ${@:3}
+# copy this run's training set to the node's own disk and train from the copy;
+# reading it from /orange (shared over the network) left the GPU idle while it
+# waited for data. $TMPDIR is this job's folder there, deleted when the job ends.
+# If the copy fails (for example the disk is full) the job stops, so it never
+# trains on a cut-off file
+start=$(date +%s)
+cp data/source/training/train_$1.bin $TMPDIR/ || exit 1
+echo "copied train_$1.bin to $TMPDIR in $(( $(date +%s) - start )) s"
+
+~/venvs/train/bin/python -u src/training/train/train.py --threshold $1 --seed $2 \
+    --bin $TMPDIR/train_$1.bin ${@:3}

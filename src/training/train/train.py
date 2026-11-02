@@ -18,7 +18,13 @@ else.
 
 Saves a checkpoint every SAVE_STEPS updates (about 2 h) and keeps the last
 SAVE_LIMIT, since the group's disk space is shared. A rerun with the same
---threshold and --seed resumes from the last checkpoint.
+--threshold and --seed resumes from the last checkpoint, and adds onto the same
+wandb run (its ID is in WANDB_IDS).
+
+--bin reads the training set from another path. jobs/train.sh copies it to the
+node's own disk first, since reading it from /orange (shared over the network)
+left the GPU idle while it waited for data. The token budget still comes from
+train_0.6.bin in data/source/training/.
 
 Runs in the training environment (~/venvs/train on HiPerGator), on one B200,
 from the repo folder. Logs to wandb (run name <threshold>_seed<seed>).
@@ -59,15 +65,31 @@ TEST_STEPS = 20         # --test: updates
 TEST_SAVE_STEPS = 10    # --test: updates between checkpoints
 DATA = "data/source/training"
 
+# each run's wandb ID, so a resumed run adds onto its wandb run instead of
+# starting a new one. These 4 were made by wandb on the first launch
+WANDB_IDS = {
+    "0.6_seed1": "yzcyhrdz",
+    "0.6_seed2": "zmr3lf8s",
+    "0.9_seed1": "xfx8e25x",
+    "0.9_seed2": "5ooicttf",
+}
+
 ap = argparse.ArgumentParser()
 ap.add_argument("--threshold", choices=["0.6", "0.9"], required=True)
 ap.add_argument("--seed", type=int, required=True)
 ap.add_argument("--test", action="store_true",
                 help=f"{TEST_STEPS} updates, a checkpoint every {TEST_SAVE_STEPS}, into runs/test/")
+ap.add_argument("--bin", help=f"training set to read (default {DATA}/train_<threshold>.bin)")
 args = ap.parse_args()
 
 run_name = "test" if args.test else f"{args.threshold}_seed{args.seed}"
 out_dir = f"{DATA}/runs/{run_name}"
+
+# a real run keeps one wandb run across reruns; a run not in WANDB_IDS uses its
+# run name as the ID
+if not args.test:
+    os.environ["WANDB_RUN_ID"] = WANDB_IDS.get(run_name, run_name)
+    os.environ["WANDB_RESUME"] = "allow"
 
 
 # 2,048-token chunks of one training set; the file is memory-mapped, so it's
@@ -86,7 +108,7 @@ class TokenChunks(Dataset):
         return {"input_ids": input_ids, "labels": input_ids}
 
 
-dataset = TokenChunks(f"{DATA}/train_{args.threshold}.bin")
+dataset = TokenChunks(args.bin or f"{DATA}/train_{args.threshold}.bin")
 
 # same number of updates for both thresholds, from train_0.6.bin's chunk count
 chunks_06 = os.path.getsize(f"{DATA}/train_0.6.bin") // 2 // SEQ_LEN
@@ -129,7 +151,7 @@ training_args = TrainingArguments(
     max_grad_norm=1.0,
     bf16=torch.cuda.is_available(),
     torch_compile=torch.cuda.is_available(),
-    dataloader_num_workers=2,
+    dataloader_num_workers=6,   # processes loading batches while the GPU trains
     logging_steps=10,
     save_steps=TEST_SAVE_STEPS if args.test else SAVE_STEPS,
     save_total_limit=SAVE_LIMIT,
