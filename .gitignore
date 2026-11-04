@@ -5,6 +5,7 @@ ccData/
 .env
 *.csv
 .venv/
+.venv-eval/
 
 # raw Athena pulls, regenerate via fetch_candidate_urls.py / fetch_raw_pool_no_ca.py
 data/candidates/raw_pool.jsonl
