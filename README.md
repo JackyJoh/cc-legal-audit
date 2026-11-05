@@ -2,6 +2,8 @@
 
 Empirical audit of how uniform MinHash fuzzy deduplication thresholds affects semantic coverage (topic entropy) in the legal domain versus general web text, using Common Crawl data.
 
+The follow-up trains small language models on the 0.6 and 0.9 data to measure how the threshold changes the model: [`src/training/README.md`](src/training/README.md).
+
 ## Motivation
 
 Standard LLM pre-training pipelines apply a uniform Jaccard similarity threshold (typically 0.8 on 13-grams) inherited from Gopher without empirical validation across domains. Legal text has constrained vocabulary and structural conventions that inflate n-gram similarity scores. Substantively different documents get flagged as duplicates not because they share content, but because they sound alike. DCLM noted this as an open problem and left domain-level investigation as future work. This project picks that up.
@@ -66,7 +68,8 @@ src/
   common/      shared Common Crawl access: Athena querying, WARC fetch/extract
   classifier/  legal-document classifier: sourcing, labels, model, validation
   corpus/      the full run: sourcing + filters, labeling, MinHash dedup, topics + entropy, the MinHash pilot
-jobs/          HiPerGator batch scripts for the full run
+  training/    the follow-up: token data, model training, evaluation
+jobs/          HiPerGator batch scripts
 ```
 
 Details in [`src/classifier/README.md`](src/classifier/README.md) and, for the full run and its timings, [`src/corpus/README.md`](src/corpus/README.md).
