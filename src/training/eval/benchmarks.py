@@ -23,7 +23,7 @@ def run_benchmarks(model_path, tokenizer=TOKENIZER, tasks=TASKS, batch_size=64, 
     lm = HFLM(pretrained=model_path, tokenizer=tokenizer, batch_size=batch_size,
               dtype="bfloat16")
     results = lm_eval.simple_evaluate(model=lm, tasks=tasks, num_fewshot=NUM_FEWSHOT,
-                                      limit=limit, log_samples=False)
+                                      limit=limit, log_samples=False, bootstrap_iters=1000)
     return results["results"]
 
 
