@@ -28,7 +28,8 @@ Outputs (data/source/training/):
   token_counts_<threshold>.npy   49,152 uint64 counts; counts[i] is how many
                                  times token ID i appears
 
-Prints: total tokens counted, and how many token IDs never appear.
+Prints: the first worker's progress (block 5/15), then total tokens counted and
+how many token IDs never appear.
 """
 import argparse
 import os
@@ -43,14 +44,18 @@ DATA = "data/source/training"
 
 
 # counts token IDs start up to end (positions in the file, in tokens), reading
-# block_tokens at a time; returns one count per token ID
-def count_range(path, start, end, block_tokens):
+# block_tokens at a time; returns one count per token ID. report prints each
+# finished block
+def count_range(path, start, end, block_tokens, report):
     counts = np.zeros(VOCAB_SIZE, dtype=np.uint64)
+    blocks = range(start, end, block_tokens)
     with open(path, "rb") as f:
         f.seek(start * TOKEN_BYTES)
-        for pos in range(start, end, block_tokens):
+        for i, pos in enumerate(blocks, 1):
             block = np.fromfile(f, dtype=np.uint16, count=min(block_tokens, end - pos))
             counts += np.bincount(block, minlength=VOCAB_SIZE).astype(np.uint64)
+            if report:
+                print(f"block {i}/{len(blocks)}", flush=True)
     return counts
 
 
@@ -68,10 +73,13 @@ def main():
     # edges[i] to edges[i + 1] is worker i's range
     edges = [n_tokens * i // args.workers for i in range(args.workers + 1)]
 
+    # only the first worker reports; all of them move at about the same pace
+    reports = [i == 0 for i in range(args.workers)]
+
     counts = np.zeros(VOCAB_SIZE, dtype=np.uint64)
     with ProcessPoolExecutor(max_workers=args.workers) as pool:
         for worker_counts in pool.map(count_range, [path] * args.workers, edges[:-1], edges[1:],
-                                      [block_tokens] * args.workers):
+                                      [block_tokens] * args.workers, reports):
             counts += worker_counts
 
     if counts.sum() != n_tokens:
