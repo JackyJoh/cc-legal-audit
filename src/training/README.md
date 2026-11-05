@@ -25,13 +25,15 @@ How does the dedup threshold change what a model learns? The full run showed tha
 | Rare-token held-out loss | the same, split by how rare each token is in training |
 | Benchmarks | general ability: HellaSwag, WinoGrande, LAMBADA, ARC-Easy, SciQ, BoolQ, PIQA, Social IQa, OpenBookQA, all 0-shot |
 
-The headline measure is chosen before the first evaluation on a final model, and recorded here with its date. **Not chosen yet.**
+**Headline measure (chosen 2026-11-05, before any evaluation on a final model):** held-out perplexity. Rare-token held-out loss and the benchmarks are secondary.
 
 ### Rare-token held-out loss
 
 **Hypothesis:** with both models trained on the same compute budget (same model size and number of tokens), a stricter dedup threshold replaces near-duplicate tokens with tokens from unique pages. This improves held-out loss on rare tokens while leaving loss on common tokens unchanged.
 
 **Mechanism check (before any model is run):** count each token type in train_0.6 and in train_0.9 × 0.926 (the share of train_0.9 its run reads). If 0.6 doesn't see rare tokens more often, the hypothesis has no mechanism and a null is expected.
+
+**Mechanism check result (2026-11-05):** 0.6 doesn't see rare tokens more often. Across 10 buckets of equal text share, the 0.6/0.9 count ratio stays between 0.989 and 1.011, with 0.999 in the rarest bucket. So a null is expected, and this measure isn't the headline. Single-token counts can't see new combinations of common tokens.
 
 **Test:**
 1. Bucket token types by their count in train_0.6, for example into deciles. Both training sets stem from it (train_0.9 is train_0.6 plus extra pages).
@@ -79,6 +81,8 @@ Held-out pages (50,000 general, 2,000 legal, kept at 0.6) are left out of both f
 **`data/`**
 - `heldout.py` picks the held-out pages.
 - `tokenize_pages.py` writes each threshold's token file.
+- `count_tokens.py` counts each token ID in one token file.
+- `rarity_buckets.py` sorts token IDs into rarity buckets and prints the mechanism check.
 
 **`train/`**
 - `throughput.py` is the speed test on one GPU.
